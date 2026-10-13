@@ -1,73 +1,82 @@
 -- =====================================================================
---  Карта полигона: база данных Supabase
---  Supabase → SQL Editor → New query → вставить весь файл → Run
+--  Полигон «Садовка»: общая база для нескольких админов (Supabase)
+--  Supabase → SQL Editor → New query → вставить ВЕСЬ файл → Run.
+--  Запускать можно повторно: ничего не сломается и данные не сотрутся.
 -- =====================================================================
 
--- Игры (точки и фото хранятся внутри игры в формате JSON)
-create table if not exists public.games (
-  id          text primary key,
-  title       text not null,
-  date        date not null,
-  summary     text not null default '',
-  scenario    text not null default '',
-  rules       text not null default '',
-  gather      text not null default '',
-  result      text not null default '',
-  photos      jsonb not null default '[]'::jsonb,
-  points      jsonb not null default '[]'::jsonb,
-  updated_at  timestamptz not null default now()
+-- Все данные сайта — одним документом (как games.json):
+--   'public'  — то, что видят посетители;
+--   'private' — телефоны игроков, их читают только админы.
+create table if not exists public.site_doc (
+  id          text primary key check (id in ('public', 'private')),
+  data        jsonb not null default '{}'::jsonb,
+  version     integer not null default 0,
+  updated_at  timestamptz not null default now(),
+  updated_by  text not null default ''
+);
+insert into public.site_doc (id) values ('public'), ('private') on conflict (id) do nothing;
+
+-- Список админов по email. Добавлять/убирать — здесь, в SQL Editor (см. внизу).
+create table if not exists public.site_admins (
+  email text primary key
 );
 
--- Список админов: только эти пользователи могут менять данные
-create table if not exists public.admins (
-  user_id uuid primary key references auth.users(id) on delete cascade
-);
-
--- Время последнего изменения обновляется само
-create or replace function public.touch_updated_at() returns trigger
-language plpgsql as $$ begin new.updated_at = now(); return new; end $$;
-drop trigger if exists games_touch on public.games;
-create trigger games_touch before update on public.games
-  for each row execute function public.touch_updated_at();
-
--- Проверка «текущий пользователь — админ»
-create or replace function public.is_admin() returns boolean
+-- Текущий вошедший пользователь — админ?
+create or replace function public.is_site_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.admins where user_id = auth.uid());
+  select exists (
+    select 1 from public.site_admins
+    where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
 $$;
 
--- ---------- ПРАВИЛА ДОСТУПА (Row Level Security) ----------
-alter table public.games  enable row level security;
-alter table public.admins enable row level security;
+-- Сохранение. Пишет только админ и только поверх той версии, которую он загрузил:
+-- если другой админ успел сохранить раньше — ошибка conflict, сайт подтянет свежую версию.
+create or replace function public.save_site(p_version integer, p_public jsonb, p_private jsonb) returns integer
+language plpgsql security definer set search_path = public as $$
+declare cur integer; who text := coalesce(auth.jwt() ->> 'email', '');
+begin
+  if not public.is_site_admin() then raise exception 'not_admin' using errcode = '42501'; end if;
+  select version into cur from public.site_doc where id = 'public' for update;
+  if cur is null then
+    insert into public.site_doc (id) values ('public'), ('private') on conflict (id) do nothing;
+    cur := 0;
+  end if;
+  if p_version <> cur then raise exception 'conflict: version %', cur; end if;
+  update public.site_doc set data = p_public,  version = cur + 1, updated_at = now(), updated_by = who where id = 'public';
+  update public.site_doc set data = p_private, version = cur + 1, updated_at = now(), updated_by = who where id = 'private';
+  return cur + 1;
+end $$;
 
-drop policy if exists "games_read_all"     on public.games;
-drop policy if exists "games_admin_insert" on public.games;
-drop policy if exists "games_admin_update" on public.games;
-drop policy if exists "games_admin_delete" on public.games;
-drop policy if exists "admins_read_self"   on public.admins;
+-- ---------- ПРАВА ДОСТУПА ----------
+alter table public.site_doc    enable row level security;
+alter table public.site_admins enable row level security;
 
--- Читать игры может кто угодно, без входа
-create policy "games_read_all" on public.games
-  for select using (true);
+drop policy if exists "site_doc_read" on public.site_doc;
+-- Публичную часть читают все, закрытую — только админы. Писать напрямую нельзя никому:
+-- только через функцию save_site.
+create policy "site_doc_read" on public.site_doc
+  for select using (id = 'public' or public.is_site_admin());
+-- Таблицу site_admins с сайта не прочитать и не изменить (политик нет).
 
--- Создавать, менять и удалять — только админы
-create policy "games_admin_insert" on public.games
-  for insert to authenticated with check (public.is_admin());
-create policy "games_admin_update" on public.games
-  for update to authenticated using (public.is_admin()) with check (public.is_admin());
-create policy "games_admin_delete" on public.games
-  for delete to authenticated using (public.is_admin());
-
--- Пользователь видит только свою строку в списке админов (сайт так проверяет вход)
-create policy "admins_read_self" on public.admins
-  for select to authenticated using (user_id = auth.uid());
--- Добавлять админов через сайт нельзя: только из SQL Editor (см. ниже)
+revoke all on function public.save_site(integer, jsonb, jsonb) from public, anon;
+grant execute on function public.save_site(integer, jsonb, jsonb) to authenticated;
+grant execute on function public.is_site_admin() to anon, authenticated;
+grant select on public.site_doc to anon, authenticated;
 
 
 -- =====================================================================
---  ПОСЛЕ создания пользователя (Authentication → Users → Add user)
---  выполните отдельно, подставив свой email:
+--  АДМИНЫ (3–4 человека)
+--  1) Authentication → Users → Add user → Create new user:
+--     email + пароль, галочка «Auto Confirm User». Так для каждого админа.
+--  2) Выполните (по строке на каждого, свои email-ы):
 --
---  insert into public.admins (user_id)
---  select id from auth.users where email = 'ВАШ_EMAIL@example.com';
+--  insert into public.site_admins (email) values
+--    ('admin1@mail.ru'),
+--    ('admin2@mail.ru');
+--
+--  Убрать админа:  delete from public.site_admins where email = 'admin2@mail.ru';
+--
+--  3) Authentication → Sign In / Providers → Email: выключите «Allow new users to sign up»,
+--     чтобы посторонние не могли создавать себе аккаунты (админами они всё равно не станут).
 -- =====================================================================

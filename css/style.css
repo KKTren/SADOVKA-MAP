@@ -626,3 +626,153 @@ body.is-admin .map-lbl div { cursor: move; outline: 1px dashed #ffffff33; outlin
 .rl-role { font: 600 9px var(--mono); text-transform: uppercase; padding: 1px 5px; border-radius: 2px; background: var(--line-2); color: var(--text); }
 .rl-commander { background: var(--amber); color: #1a1406; }
 .seg button { padding-left: 2px; padding-right: 2px; font-size: 11px; }
+
+/* ================================================================
+   ВЕРХНЯЯ СЦЕНА: параллакс, галереи, таймер, закреплённая плашка
+   ================================================================ */
+html { scroll-padding-top: calc(var(--top-h) + 8px); }
+html:has(body.has-pinbar) { scroll-padding-top: calc(var(--top-h) + 52px); }
+body.has-pinbar { --pin-h: 44px; }
+.legend { scroll-margin-top: calc(var(--top-h) + var(--pin-h, 0px)); }
+@media (min-width: 761px) { #app { height: clamp(520px, calc(100dvh - var(--top-h) - var(--pin-h, 0px) - 46px), 940px); } }
+
+/* закреплённая плашка */
+.pinbar { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--top-h)); z-index: 1990; min-height: 44px;
+  background: linear-gradient(90deg, #2a2312, #3a2d13 50%, #2a2312); border-bottom: 1px solid #6b5220; box-shadow: 0 4px 14px #0007; }
+.pinbar__in { max-width: 1400px; margin: 0 auto; min-height: 44px; display: flex; align-items: center; gap: 14px; padding: 4px 16px; }
+.pinbar__k { font: 500 11px var(--head); letter-spacing: .22em; text-transform: uppercase; color: var(--amber); white-space: nowrap; }
+.pinbar__t { all: unset; cursor: pointer; min-width: 0; font: 500 17px/1.1 var(--head); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pinbar__t small { margin-left: 10px; font: 13px var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
+.pinbar__t:hover { color: var(--amber); }
+.pinbar__time { margin-left: auto; font: 600 16px var(--mono); color: var(--amber); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pinbar__btn { padding: 6px 12px; white-space: nowrap; }
+
+/* сцена */
+.scene { position: relative; overflow: hidden; isolation: isolate; height: clamp(560px, 46vw, 680px); border-bottom: 1px solid var(--line-2); background: #1a2215; }
+.scene__layer { position: absolute; pointer-events: none; will-change: transform; }
+.scene__forest { inset: -14% -4% -4% -4%; background: url(../img/hero/forest.webp) center 62% / cover no-repeat; filter: saturate(.85) brightness(.78); }
+.scene__shade { inset: 0; background: linear-gradient(180deg, #0e120c8c 0%, #0e120c00 40%, #0e120ca6 85%, var(--bg) 100%); }
+.scene__ground { left: -5%; right: -5%; bottom: -2%; height: 30%; background: radial-gradient(ellipse at 50% 100%, #5a4a32 0%, #3d3424 45%, transparent 75%); opacity: .85; }
+.scene__soldiers { left: calc(50% - min(25vw, 350px)); bottom: 0; width: min(50vw, 700px); }
+.scene__ui { position: relative; z-index: 5; max-width: 1400px; height: 100%; margin: 0 auto; padding: 40px 24px 0;
+  display: grid; grid-template-columns: 1fr minmax(360px, 480px) 1fr; gap: 20px; align-items: start; }
+
+.hgal, .cd { background: #161c13e6; border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 10px 30px #0009; }
+.hgal__head { padding: 11px 16px; font: 500 21px/1 var(--head); letter-spacing: .05em; text-transform: uppercase; border-bottom: 1px solid var(--line-2); background: linear-gradient(90deg, #ffffff0a, transparent); }
+.hgal__frame { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: #0f140d; }
+.hgal__img { all: unset; position: absolute; inset: 0; cursor: zoom-in; opacity: 0; transition: opacity .6s; }
+.hgal__img.on { opacity: 1; z-index: 1; }
+.hgal__img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hgal__img.contain { background: radial-gradient(#2c3a24, #121810); }
+.hgal__img.contain img { object-fit: contain; padding: 8px; box-sizing: border-box; }
+.hgal__tag { position: absolute; z-index: 2; left: 12px; bottom: 12px; padding: 5px 10px; background: var(--amber); color: #1a1406; font: 600 12px var(--head); letter-spacing: .06em; text-transform: uppercase; border-radius: 3px; pointer-events: none; }
+.hgal__nav { position: absolute; z-index: 2; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: #000a; color: #fff; font-size: 20px; line-height: 1; padding: 0 0 3px; }
+.hgal__nav.prev { left: 8px; } .hgal__nav.next { right: 8px; }
+.hgal__nav:hover { background: var(--amber); color: #000; }
+
+.cd { text-align: center; padding: 24px 20px 20px; }
+.cd__title { font: 500 clamp(20px, 2vw, 27px)/1.15 var(--head); letter-spacing: .04em; text-transform: uppercase; text-wrap: balance; }
+.cd__grid { display: flex; justify-content: center; align-items: flex-start; gap: 6px; margin: 18px 0 14px; }
+.cd__grid > i { font: 600 38px/1.5 var(--head); font-style: normal; color: var(--amber); }
+.cd__cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.cd__num { min-width: 82px; padding: 6px 8px; border: 1px solid #2c3626; border-radius: 4px; font: 600 clamp(40px, 4.2vw, 60px)/1 var(--head); font-variant-numeric: tabular-nums; color: #f2efe2;
+  background: #0b0f09 linear-gradient(180deg, #ffffff0d 50%, #00000040 50%); }
+.cd__unit { font: 500 14px var(--head); letter-spacing: .1em; text-transform: uppercase; color: var(--amber); }
+.cd__next { border-top: 1px solid var(--line-2); padding-top: 12px; font: 500 19px/1.25 var(--head); letter-spacing: .03em; text-transform: uppercase; }
+.cd__next b { color: var(--amber); font-weight: 500; }
+.cd__sub { margin: 4px 0 0; color: var(--muted); }
+.cd__acts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+
+/* сценарии под сценой: «Полигон» закреплён слева на ПК и первым на телефоне */
+.scene + .hero { padding-top: 18px; }
+.scene + .hero .sc-head { margin-top: 0; }
+
+@media (max-width: 900px) {
+  .scene { height: auto; }
+  .scene__ui { height: auto; grid-template-columns: 1fr 1fr; padding: 16px 16px 190px; gap: 12px; }
+  .cd { grid-column: 1 / -1; order: -1; }
+  .hgal__head { font-size: 15px; padding: 9px 12px; }
+  .scene__soldiers { width: 86vw; left: 7vw; }
+
+}
+@media (max-width: 560px) {
+  .scene__ui { gap: 8px; padding-bottom: 170px; }
+  .hgal__head { font-size: 13px; padding: 8px 10px; }
+  .hgal__tag { left: 6px; bottom: 6px; padding: 3px 6px; font-size: 10px; }
+  .hgal__nav { width: 28px; height: 28px; font-size: 16px; }
+  .hgal__nav.prev { left: 4px; } .hgal__nav.next { right: 4px; }
+  .cd { padding: 18px 12px 16px; }
+  .cd__num { min-width: 54px; font-size: 34px; padding: 5px; }
+  .cd__grid > i { font-size: 24px; }
+  .cd__unit { font-size: 11px; }
+  .cd__next { font-size: 16px; }
+  .cd__acts .btn { flex: 1; }
+  .pinbar__in { gap: 10px; padding: 4px 10px; }
+  .pinbar__k, .pinbar__t small { display: none; }
+  .pinbar__t { font-size: 15px; flex: 1; }
+  .pinbar__time { font-size: 13px; margin-left: 0; }
+  .pinbar__btn { padding: 6px 9px; font-size: 11px; }
+}
+/* «Полигон» закреплён слева и на телефоне: рядом лента сценариев листается вбок.
+   Раньше на телефоне «Полигон» стоял над лентой и его перекрывала рамка-перемычка анонса. */
+@media (max-width: 760px) {
+  .sc-list { grid-template-columns: minmax(118px, 36%) minmax(0, 1fr); gap: 8px; }
+  .sc-pin::after { display: block; right: -5px; }
+  .sc-track { grid-auto-columns: 88%; }
+  .sc { padding: 12px 10px 10px; }
+  .sc h3 { font-size: 17px; }
+  .sc p { font-size: 12px; -webkit-line-clamp: 3; }
+  .sc-pin .sc__meta { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .scene__layer { transform: none !important; } .hgal__img { transition: none; } }
+
+/* подсказка «Ctrl + колёсико» над картой */
+.map-hint { position: absolute; z-index: 1200; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 16px; border-radius: 6px; background: #0b0f09d9; border: 1px solid var(--line-2); color: var(--text); font: 500 15px var(--head); letter-spacing: .06em; pointer-events: none; box-shadow: 0 6px 20px #000a; }
+/* правая панель: докрутили до конца — дальше крутится страница */
+.panel__body { overscroll-behavior: auto; }
+
+/* редактирование галерей из шапки */
+.hgal__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hgal__edit { width: 28px; height: 28px; flex: none; border: 1px solid var(--amber); border-radius: 4px; background: #2a2312; color: var(--amber); font-size: 15px; line-height: 1; padding: 0; }
+.hgal__edit:hover { background: var(--amber); color: #1a1406; }
+.hgal__empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* разметка в разделах «Для игроков» (правила) */
+.rt { display: flex; flex-direction: column; gap: 8px; line-height: 1.55; }
+.rt p, .rt ul, .rt ol { margin: 0; }
+.rt ul, .rt ol { padding-left: 22px; display: flex; flex-direction: column; gap: 3px; }
+.rt li::marker { color: var(--amber); }
+.rt h4 { margin: 10px 0 0; font: 500 17px var(--head); letter-spacing: .06em; text-transform: uppercase; color: var(--amber); }
+.rt h4:first-child { margin-top: 0; }
+.rt b { color: var(--text); }
+.rt-tbl { overflow-x: auto; border: 1px solid var(--line-2); border-radius: var(--radius); }
+.rt table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.rt th { text-align: left; padding: 8px 10px; background: var(--panel-3); font: 500 12px var(--head); letter-spacing: .1em; text-transform: uppercase; color: var(--amber); white-space: nowrap; }
+.rt td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.rt td:first-child { white-space: nowrap; font-weight: 600; color: var(--text); }
+@media (max-width: 560px) { .rt td:first-child { white-space: normal; } .rt table { font-size: 12.5px; } .rt th, .rt td { padding: 6px 7px; } }
+.acc__b { max-width: 110ch; } .rt-tbl { overflow-wrap: normal; }
+
+/* ================= стороны: много команд на одной стороне ================= */
+.sblock { border: 1px solid var(--line-2); border-left: 3px solid var(--c); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); }
+.sblock__h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sblock__tot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.sblock__tot input { width: 90px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 6px 8px; }
+.strows { display: flex; flex-direction: column; gap: 6px; }
+.strows:empty { display: none; }
+.strow { display: grid; grid-template-columns: minmax(0, 1fr) 80px 34px; gap: 6px; align-items: center; --c: inherit; }
+.strow select, .strow input { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 7px 9px; width: 100%; min-width: 0; }
+.strow .st-pl[hidden] { display: block !important; visibility: hidden; }
+.strow .srow__roster { grid-column: 1 / -1; }
+.sblock__add { align-self: flex-start; padding: 5px 10px; }
+.tbs { display: inline-flex; align-items: center; }
+.tbs > * + * { margin-left: -6px; }
+.vs-side small .more, .tm .more { color: var(--amber); }
+.side__t { margin: 3px 0; }
+.side__t b { font-size: 13px; }
+.side__more { font-size: 12px; color: var(--amber); padding: 0; }
+.tsub { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2); }
+.tsub__h { display: flex; align-items: center; gap: 8px; }
+.tsub__h b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tsub__h span { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.tsub .roster-list { margin-top: 6px; }

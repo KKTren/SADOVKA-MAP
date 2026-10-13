@@ -12,9 +12,9 @@
      border:    [[x,y], …],                         // граница полигона (доли ширины/высоты)
      places:    [{ id, name, x, y, type, icon, note, photos }],   // постоянные объекты полигона
      scenarios: [{ id, title, summary, rules, photos }],    // «Взвод», «Поиск пилота»…
-     games:     [{ id, scenarioId, title, date:'ГГГГ-ММ-ДД', featured,
+     games:     [{ id, scenarioId, title, date:'ГГГГ-ММ-ДД', time:'ЧЧ:ММ', featured,
                    summary, gather, result, photos,
-                   sides:{ [sideId]: { team, players, present:[playerId…] } },
+                   sides:{ [sideId]: { teams:[{ id:teamId, players, present:[playerId…] }], players } },  // players стороны — всего; пусто — сумма по командам
                    points:[{ id, name, type, icon, x, y,
                              before, after,          // id стороны-владельца до и после игры ('' — ничья)
                              area:[[x,y],…], note, photos }],
@@ -46,6 +46,17 @@
   const PLACE_TYPES = ['building', 'tower', 'bunker', 'point', 'flag', 'respawn', 'hq', 'parking', 'entry'];
   const OLD_STATUS = { ours: 'blue', enemy: 'red', neutral: 'grey' };
 
+  function normHero(h) {
+    if (!h || typeof h !== 'object') return null;
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    return {
+      startTime: /^\d{1,2}:\d{2}$/.test(h.startTime || '') ? h.startTime : '',
+      galleries: arr(h.galleries).slice(0, 2).map(g => ({
+        title: str(g && g.title, 60), tag: str(g && g.tag, 60), fit: g && g.fit === 'contain' ? 'contain' : 'cover',
+        photos: arr(g && g.photos).filter(p => p && p.url).map(p => ({ url: str(p.url, 500), caption: str(p.caption, 120) }))
+      }))
+    };
+  }
   function normalizeDoc(d, cfg) {
     d = d || {};
     const g0 = (d.settings && d.settings.grid) || {}, gd = (cfg && cfg.grid) || { cols: 12, rows: 12 };
@@ -57,7 +68,9 @@
         cw: +g0.cw > 0 ? +g0.cw : null, ch: +g0.ch > 0 ? +g0.ch : null, angle: Math.max(-180, Math.min(180, +g0.angle || 0)), square: !!g0.square },
       border: { color: color(b0.color, '#f2c230'), width: Math.min(12, Math.max(1, +b0.width || 4)) },
       signup: { vk: String((d.settings && d.settings.signup && d.settings.signup.vk) || '').slice(0, 300) },
-      showRoster: d.settings && d.settings.showRoster != null ? !!d.settings.showRoster : true
+      showRoster: d.settings && d.settings.showRoster != null ? !!d.settings.showRoster : true,
+      // верхняя сцена: галереи и время начала по умолчанию (null — берутся из js/config.js)
+      hero: normHero(d.settings && d.settings.hero)
     };
     const sides = (arr(d.sides).length ? d.sides : DEFAULT_SIDES).map(s => ({ id: s.id || uid(), name: s.name || 'Сторона', color: color(s.color, '#a7aaa0') }));
     const str = (v, n) => String(v ?? '').slice(0, n);
@@ -88,13 +101,20 @@
       const src = Object.assign({}, g.sides || {});
       if (g.players && !g.sides) { src.blue = { players: g.players.ours }; src.red = { players: g.players.enemy }; }
       for (const k in src) if (ids.has(k) && src[k]) {
-        const team = src[k].team || '', tm = teams.find(t => t.id === team);
-        const present = tm ? [...new Set(arr(src[k].present).map(String))].filter(pid => tm.players.some(p => p.id === pid)) : []; // только из состава выбранной команды
-        gs[k] = { team, players: num(src[k].players), present };
+        // на стороне может быть много команд; старый формат { team, present } переводим в список из одной команды
+        const raw = Array.isArray(src[k].teams) ? src[k].teams : src[k].team ? [{ id: src[k].team, players: null, present: src[k].present }] : [];
+        const seen = new Set(), list = [];
+        raw.forEach(e => {
+          const id = String((e && (e.id || e.team)) || ''), tm = teams.find(t => t.id === id);
+          if (!tm || seen.has(id)) return; seen.add(id);
+          const present = [...new Set(arr(e.present).map(String))].filter(pid => tm.players.some(p => p.id === pid)); // только из состава этой команды
+          list.push({ id, players: num(e.players), present });
+        });
+        gs[k] = { teams: list, players: num(src[k].players) };
       }
       return {
         id: g.id || uid(), scenarioId: sc, title: g.title || 'Игра', date: g.date || new Date().toISOString().slice(0, 10),
-        featured: !!g.featured, summary: g.summary || '', gather: g.gather || '', result: g.result || '',
+        time: /^\d{1,2}:\d{2}$/.test(g.time || '') ? g.time : '', featured: !!g.featured, summary: g.summary || '', gather: g.gather || '', result: g.result || '',
         photos: arr(g.photos), sides: gs,
         arrows: arr(g.arrows).map(a => ({ id: a.id || uid(), pts: poly(a.pts), color: paint(a.color), opacity: op(a.opacity), width: Math.min(20, Math.max(1, +a.width || 4)) })).filter(a => a.pts.length >= 2),
         points: arr(g.points).map(p => {
@@ -140,8 +160,115 @@
     };
   }
 
+  /* ================================================================
+     SUPABASE: общая база для нескольких админов.
+     Таблица site_doc: строка 'public' (всё, что видят посетители) и 'private'
+     (телефоны игроков — читают только админы). Пишет только функция save_site,
+     она пускает лишь email-ы из таблицы site_admins и не даёт затереть
+     чужие правки: сохранение идёт только поверх той версии, которую вы загрузили.
+     Если база недоступна, посетители видят data/games.json.
+     ================================================================ */
+  function SupabaseBackend(cfg) {
+    const URL_ = String(cfg.supabaseUrl).replace(/\/+$/, ''), KEY = cfg.supabaseAnonKey, SES = 'polygon-sb-session';
+    let doc = normalizeDoc(null, cfg), version = 0, meta = { at: '', by: '' }, admin = false, session = null, empty = false;
+    try { session = JSON.parse(ls.get(SES) || 'null'); } catch (e) { session = null; }
+    const keep = s => { session = s; if (s) ls.set(SES, JSON.stringify(s)); else ls.del(SES); };
+    const err = async (r, def) => { let m = def; try { const j = await r.json(); m = j.message || j.msg || j.error_description || j.error || def; } catch (e) {} const e = new Error(m); e.status = r.status; return e; };
+    async function auth(path, body) {
+      const r = await fetch(`${URL_}/auth/v1/${path}`, { method: 'POST', headers: { apikey: KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) throw await err(r, 'Ошибка входа');
+      const j = await r.json(); keep({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: (j.user && j.user.email) || '' });
+    }
+    async function token() {
+      if (!session) return KEY;
+      if (Date.now() > session.expires_at - 60000) {
+        try { await auth('token?grant_type=refresh_token', { refresh_token: session.refresh_token }); }
+        catch (e) { keep(null); admin = false; return KEY; }
+      }
+      return session.access_token;
+    }
+    async function rest(path, opts = {}) {
+      const r = await fetch(`${URL_}/rest/v1/${path}`, Object.assign({}, opts, { headers: Object.assign({ apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, opts.headers || {}) }));
+      if (!r.ok) throw await err(r, 'Ошибка базы данных (' + r.status + ')');
+      return r.status === 204 ? null : r.json();
+    }
+    const rpc = (fn, body) => rest('rpc/' + fn, { method: 'POST', body: JSON.stringify(body || {}) });
+    async function checkAdmin() { try { admin = !!(await rpc('is_site_admin')); } catch (e) { admin = false; } return admin; }
+    /** Телефоны игроков уходят в закрытую строку, посетителям не отдаются. */
+    function split(d) {
+      const pub = structuredClone(d), phones = {};
+      pub.teams.forEach(t => t.players.forEach(p => { if (p.phone) phones[p.id] = p.phone; p.phone = ''; }));
+      return { pub, priv: { phones } };
+    }
+    async function fallbackJson() {
+      const r = await fetch(cfg.jsonUrl + '?v=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('Не удалось загрузить данные');
+      return r.json();
+    }
+    return {
+      mode: 'supabase',
+      canWrite: () => admin,
+      hasDraft: () => false,
+      doc: () => doc,
+      who: () => (session && session.email) || '',
+      meta: () => Object.assign({ version }, meta),
+      isEmpty: () => empty,
+      /** Есть ли в базе версия новее загруженной (другой админ что-то сохранил). */
+      async remoteVersion() { const r = await rest('site_doc?id=eq.public&select=version,updated_at,updated_by'); return r[0] || null; },
+      async load() {
+        let row = null;
+        try { row = (await rest('site_doc?id=eq.public&select=data,version,updated_at,updated_by'))[0] || null; }
+        catch (e) { console.warn('База недоступна, показываю data/games.json', e); }
+        empty = !row || !row.version;
+        version = row ? row.version : 0; meta = { at: row ? row.updated_at : '', by: row ? row.updated_by : '' };
+        let data = empty ? await fallbackJson() : row.data;
+        if (admin && !empty) {
+          try {
+            const pr = (await rest('site_doc?id=eq.private&select=data'))[0];
+            const phones = (pr && pr.data && pr.data.phones) || {};
+            arr(data.teams).forEach(t => arr(t.players).forEach(p => { if (phones[p.id]) p.phone = phones[p.id]; }));
+          } catch (e) { console.warn('Не удалось прочитать телефоны', e); }
+        }
+        doc = normalizeDoc(data, cfg);
+        return doc;
+      },
+      /** Без аргументов — восстановить прошлый вход в этом браузере. */
+      async signIn(email, password) {
+        if (email) await auth('token?grant_type=password', { email: String(email).trim(), password });
+        if (!session) return false;
+        if (!(await checkAdmin())) { if (email) { const who = session.email; await this.signOut(); throw new Error(`${who} нет в списке админов. Добавьте его в таблицу site_admins в Supabase.`); } return false; }
+        return true;
+      },
+      async signOut() {
+        if (session) { try { await fetch(`${URL_}/auth/v1/logout`, { method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + session.access_token } }); } catch (e) {} }
+        keep(null); admin = false;
+      },
+      async changePassword(password) {
+        const r = await fetch(`${URL_}/auth/v1/user`, { method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+        if (!r.ok) throw await err(r, 'Не удалось сменить пароль');
+      },
+      /** Сохраняет всё в базу сразу для всех. Если кто-то сохранил раньше — ошибка с conflict = true. */
+      async save() {
+        if (!admin) throw new Error('Нужно войти как админ');
+        doc = normalizeDoc(doc, cfg);
+        const { pub, priv } = split(doc);
+        try { version = await rpc('save_site', { p_version: version, p_public: pub, p_private: priv }); }
+        catch (e) {
+          if (/conflict/.test(e.message)) { const c = new Error('conflict'); c.conflict = true; throw c; }
+          if (/not_admin/.test(e.message)) { admin = false; throw new Error('Вход истёк или вы больше не админ — войдите заново'); }
+          throw e;
+        }
+        empty = false; meta = { at: new Date().toISOString(), by: this.who() };
+        return doc;
+      },
+      async replace(data) { doc = normalizeDoc(data, cfg); return this.save(); },
+      discardDraft() { return doc; },
+      exportData: () => Object.assign({ exported: new Date().toISOString() }, doc)
+    };
+  }
+
   window.Store = {
     uid, normalizeDoc, POINT_TYPES, PLACE_TYPES,
-    async create(cfg) { return JsonBackend(cfg); }
+    async create(cfg) { return cfg.storage === 'supabase' && cfg.supabaseUrl && cfg.supabaseAnonKey ? SupabaseBackend(cfg) : JsonBackend(cfg); }
   };
 })();

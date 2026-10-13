@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20261014c">
 </head>
 <body>
 
@@ -23,17 +23,32 @@
   </div>
   <div class="top-right">
   <nav class="soc" id="socLinks" aria-label="Мы в сети"></nav>
-  <button class="iconbtn" id="btnLogin" title="Вход для админа" aria-label="Вход для админа">
+  <button class="iconbtn" id="btnLogin" title="Вход для админа" aria-label="Вход для админа" hidden>
     <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
   </button>
   </div>
 </header>
 
-<!-- ВИЗИТКА: ближайшая игра и сценарии -->
-<section class="hero" aria-labelledby="heroTitle">
+<!-- ЗАКРЕПЛЁННАЯ ПЛАШКА: ближайшая игра видна всегда, на ПК и на телефоне -->
+<div class="pinbar" id="pinbar" hidden></div>
+
+<!-- СЦЕНА С ПАРАЛЛАКСОМ: галереи и таймер до ближайшей игры -->
+<section class="scene" id="scene" aria-labelledby="heroTitle">
+  <h1 class="sr" id="heroTitle">Полигон</h1>
+  <div class="scene__layer scene__forest" data-depth="0.15"></div>
+  <div class="scene__layer scene__shade"></div>
+  <div class="scene__layer scene__ground" data-depth="0.45"></div>
+  <img class="scene__layer scene__soldiers" src="img/hero/soldiers.webp" alt="" data-depth="0.8">
+  <div class="scene__ui">
+    <div class="hgal hgal--1" id="hgal1"></div>
+    <div class="cd" id="countdown"></div>
+    <div class="hgal hgal--2" id="hgal2"></div>
+  </div>
+</section>
+
+<!-- СЦЕНАРИИ: «Полигон» закреплён слева, дальше игры по сценариям -->
+<section class="hero" aria-label="Сценарии">
   <div class="hero__in">
-    <div class="hero__kicker">Страйкбольные игры · организаторы</div>
-    <h1 id="heroTitle">Полигон</h1>
     <div class="sc-head"><h2>Сценарии</h2><span class="sc-hint">Выберите сценарий — ниже откроется его карта, правила и история игр</span></div>
     <div id="nextGame"></div>
     <div class="sc-list" id="scList"></div>
@@ -88,6 +103,7 @@
       <button id="admOwner" title="Клик по точке на карте меняет её владельца">⇄ Владелец</button>
       <button id="admArrow" title="Стрелка направления для этой игры">➚ Стрелка</button>
       <button id="admLabel" title="Крупная подпись полигона, видна всегда">Aa Подпись</button>
+      <button id="admHero" title="Фото галереи и таймер вверху сайта">▣ Верх сайта</button>
       <button id="admSettings" title="Сетка, граница полигона, стороны и команды">⚙ Настройки</button>
       <button id="admMore" aria-expanded="false">Ещё ▾</button>
       <div class="adminbar__menu" id="admMenu" hidden>
@@ -97,6 +113,7 @@
         <button id="admExport">Скачать games.json</button>
         <button id="admImport">Загрузить games.json…</button>
         <button id="admDiscard" class="danger">Сбросить черновик</button>
+        <button id="admPass">Сменить пароль…</button>
         <button id="admLogout">Выйти</button>
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -149,8 +166,8 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="js/config.js"></script>
-<script src="js/store.js"></script>
-<script src="js/app.js"></script>
+<script src="js/config.js?v=20261014c"></script>
+<script src="js/store.js?v=20261014c"></script>
+<script src="js/app.js?v=20261014c"></script>
 </body>
 </html>
