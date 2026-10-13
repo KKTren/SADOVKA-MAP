@@ -1,0 +1,576 @@
+{
+  "version": 4,
+  "settings": {
+    "grid": {
+      "cols": 12,
+      "rows": 12
+    },
+    "border": {
+      "color": "#f2c230",
+      "width": 4
+    },
+    "signup": {
+      "vk": ""
+    }
+  },
+  "sides": [
+    {
+      "id": "red",
+      "name": "Красная",
+      "color": "#e5483b"
+    },
+    {
+      "id": "blue",
+      "name": "Синяя",
+      "color": "#3d8bff"
+    },
+    {
+      "id": "grey",
+      "name": "Нейтральная",
+      "color": "#a7aaa0"
+    }
+  ],
+  "teams": [
+    {
+      "id": "team-1",
+      "name": "Команда 1 (пример)"
+    },
+    {
+      "id": "team-2",
+      "name": "Команда 2 (пример)"
+    }
+  ],
+  "border": [],
+  "places": [],
+  "scenarios": [
+    {
+      "id": "sc-vzvod",
+      "title": "Взвод",
+      "summary": "Кампания: штурм и удержание точек. Итог каждой игры переходит в следующую.",
+      "rules": "ТЕСТОВЫЙ СЦЕНАРИЙ. Респаун 10 минут у своего флага. Точка считается взятой, если на ней нет живых противников 5 минут.",
+      "photos": []
+    },
+    {
+      "id": "sc-pilot",
+      "title": "Поиск пилота",
+      "summary": "Поисковая игра: найти сбитого пилота раньше противника и вывести к своим.",
+      "rules": "ТЕСТОВЫЙ СЦЕНАРИЙ. Пилот — игрок без оружия. Его нужно довести до своей точки эвакуации.",
+      "photos": []
+    }
+  ],
+  "games": [
+    {
+      "id": "demo-2026-08-16",
+      "scenarioId": "sc-vzvod",
+      "title": "Операция «Рубеж»",
+      "date": "2026-08-16",
+      "featured": false,
+      "summary": "ТЕСТОВАЯ ИГРА. Удержание высот в северной части полигона.",
+      "gather": "Сбор в 09:00 у базы (домик), брифинг 09:45, старт 10:30.",
+      "result": "Победа по очкам: держим 4 точки из 6.",
+      "photos": [
+        {
+          "url": "data/demo/base.jpg",
+          "caption": "База перед стартом"
+        }
+      ],
+      "sides": {
+        "blue": {
+          "team": "team-1",
+          "players": 24
+        },
+        "red": {
+          "team": "team-2",
+          "players": 27
+        }
+      },
+      "points": [
+        {
+          "id": "p-base-1",
+          "name": "База",
+          "type": "hq",
+          "x": 0.588,
+          "y": 0.515,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "Домик, сбор и стоянка.",
+          "photos": []
+        },
+        {
+          "id": "p-cross-1",
+          "name": "Перекрёсток",
+          "type": "flag",
+          "x": 0.095,
+          "y": 0.085,
+          "before": "red",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-quarry-1",
+          "name": "Карьер",
+          "type": "bunker",
+          "x": 0.255,
+          "y": 0.46,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "Меловой карьер, хороший обзор на запад.",
+          "photos": []
+        },
+        {
+          "id": "p-field-1",
+          "name": "Поле",
+          "type": "point",
+          "x": 0.85,
+          "y": 0.362,
+          "before": "grey",
+          "after": "grey",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-hill-1",
+          "name": "Высота 210",
+          "type": "flag",
+          "x": 0.36,
+          "y": 0.15,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-ravine-1",
+          "name": "Овраг",
+          "type": "respawn",
+          "x": 0.34,
+          "y": 0.724,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "id": "demo-2026-09-13",
+      "scenarioId": "sc-vzvod",
+      "title": "Перевал",
+      "date": "2026-09-13",
+      "featured": false,
+      "summary": "ТЕСТОВАЯ ИГРА. Бои за Поле и перекрёсток.",
+      "gather": "Сбор в 08:30 у базы.",
+      "result": "Ничья: взяли Перекрёсток, отдали Поле.",
+      "photos": [
+        {
+          "url": "data/demo/field.jpg",
+          "caption": "Поле"
+        },
+        {
+          "url": "data/demo/road.jpg",
+          "caption": "Выход к трассе"
+        }
+      ],
+      "sides": {
+        "blue": {
+          "team": "team-1",
+          "players": 24
+        },
+        "red": {
+          "team": "team-2",
+          "players": 27
+        }
+      },
+      "points": [
+        {
+          "id": "p-base-2",
+          "name": "База",
+          "type": "hq",
+          "x": 0.588,
+          "y": 0.515,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-cross-2",
+          "name": "Перекрёсток",
+          "type": "flag",
+          "x": 0.095,
+          "y": 0.085,
+          "before": "red",
+          "after": "blue",
+          "area": [],
+          "note": "Взяли с третьей попытки.",
+          "photos": []
+        },
+        {
+          "id": "p-quarry-2",
+          "name": "Карьер",
+          "type": "bunker",
+          "x": 0.255,
+          "y": 0.46,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "Меловой карьер, хороший обзор на запад.",
+          "photos": []
+        },
+        {
+          "id": "p-field-2",
+          "name": "Поле",
+          "type": "point",
+          "x": 0.85,
+          "y": 0.362,
+          "before": "grey",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-hill-2",
+          "name": "Высота 210",
+          "type": "flag",
+          "x": 0.37,
+          "y": 0.16,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-ravine-2",
+          "name": "Овраг",
+          "type": "respawn",
+          "x": 0.34,
+          "y": 0.724,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-road-2",
+          "name": "Трасса",
+          "type": "bunker",
+          "x": 0.925,
+          "y": 0.75,
+          "before": "red",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "id": "demo-2026-10-04",
+      "scenarioId": "sc-vzvod",
+      "title": "Последний рубеж",
+      "date": "2026-10-04",
+      "featured": false,
+      "summary": "ТЕСТОВАЯ ИГРА. Потеряли Карьер, удержали Перекрёсток.",
+      "gather": "Сбор в 09:00 у базы, брифинг 09:30.",
+      "result": "Поражение по очкам: Карьер потерян на 3-м часу игры, Перекрёсток удержан.",
+      "photos": [
+        {
+          "url": "data/demo/base.jpg",
+          "caption": "Брифинг"
+        },
+        {
+          "url": "data/demo/quarry.jpg",
+          "caption": "Карьер после штурма"
+        },
+        {
+          "url": "data/demo/ravine.jpg",
+          "caption": "Овраг, отход"
+        }
+      ],
+      "sides": {
+        "blue": {
+          "team": "team-1",
+          "players": 24
+        },
+        "red": {
+          "team": "team-2",
+          "players": 27
+        }
+      },
+      "points": [
+        {
+          "id": "p-base-3",
+          "name": "База",
+          "type": "hq",
+          "x": 0.588,
+          "y": 0.515,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-cross-3",
+          "name": "Перекрёсток",
+          "type": "flag",
+          "x": 0.095,
+          "y": 0.085,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-quarry-3",
+          "name": "Карьер",
+          "type": "bunker",
+          "x": 0.255,
+          "y": 0.46,
+          "before": "blue",
+          "after": "red",
+          "area": [
+            [
+              0.215,
+              0.42
+            ],
+            [
+              0.3,
+              0.415
+            ],
+            [
+              0.31,
+              0.5
+            ],
+            [
+              0.235,
+              0.515
+            ]
+          ],
+          "note": "Потеряли на 3-м часу: зашли с севера через лес.",
+          "photos": [
+            {
+              "url": "data/demo/quarry.jpg",
+              "caption": "Карьер"
+            },
+            {
+              "url": "data/demo/ravine.jpg",
+              "caption": "Подход с юга"
+            }
+          ]
+        },
+        {
+          "id": "p-field-3",
+          "name": "Поле",
+          "type": "point",
+          "x": 0.85,
+          "y": 0.362,
+          "before": "red",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-hill-3",
+          "name": "Высота 210",
+          "type": "flag",
+          "x": 0.37,
+          "y": 0.16,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-ravine-3",
+          "name": "Овраг",
+          "type": "respawn",
+          "x": 0.33,
+          "y": 0.7,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "Респаун перенесли севернее.",
+          "photos": []
+        },
+        {
+          "id": "p-road-3",
+          "name": "Трасса",
+          "type": "bunker",
+          "x": 0.925,
+          "y": 0.75,
+          "before": "red",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "p-camp-3",
+          "name": "Лесной лагерь",
+          "type": "point",
+          "x": 0.55,
+          "y": 0.83,
+          "before": "grey",
+          "after": "grey",
+          "area": [],
+          "note": "",
+          "photos": []
+        }
+      ],
+      "arrows": [
+        {
+          "id": "ar-1",
+          "pts": [
+            [
+              0.8,
+              0.3
+            ],
+            [
+              0.55,
+              0.33
+            ],
+            [
+              0.3,
+              0.44
+            ]
+          ],
+          "color": "side:red",
+          "opacity": 0.8,
+          "width": 5
+        }
+      ]
+    },
+    {
+      "id": "demo-2026-10-25",
+      "scenarioId": "sc-pilot",
+      "title": "Поиск пилота",
+      "date": "2026-10-25",
+      "featured": true,
+      "summary": "ТЕСТОВАЯ ИГРА. Пилот сбит над лесом в центре полигона. Найти и вывести к своим.",
+      "gather": "Сбор в 09:00 у базы, брифинг 09:30, старт 10:00.",
+      "result": "",
+      "photos": [],
+      "sides": {
+        "blue": {
+          "team": "team-1",
+          "players": null
+        },
+        "red": {
+          "team": "team-2",
+          "players": null
+        }
+      },
+      "points": [
+        {
+          "id": "pp-1",
+          "name": "Место падения",
+          "type": "point",
+          "x": 0.47,
+          "y": 0.55,
+          "before": "",
+          "after": "",
+          "area": [
+            [
+              0.43,
+              0.51
+            ],
+            [
+              0.52,
+              0.5
+            ],
+            [
+              0.53,
+              0.6
+            ],
+            [
+              0.44,
+              0.61
+            ]
+          ],
+          "note": "Примерная зона поиска.",
+          "photos": []
+        },
+        {
+          "id": "pp-2",
+          "name": "Эвакуация синих",
+          "type": "flag",
+          "x": 0.588,
+          "y": 0.515,
+          "before": "blue",
+          "after": "blue",
+          "area": [],
+          "note": "",
+          "photos": []
+        },
+        {
+          "id": "pp-3",
+          "name": "Эвакуация красных",
+          "type": "flag",
+          "x": 0.85,
+          "y": 0.36,
+          "before": "red",
+          "after": "red",
+          "area": [],
+          "note": "",
+          "photos": []
+        }
+      ],
+      "arrows": []
+    }
+  ],
+  "info": [
+    {
+      "id": "info-rules",
+      "title": "Правила полигона",
+      "body": "ПРИМЕР — замените своим текстом.\n\nОчки или маска обязательны всё время на полигоне.\nСтрельба только в игровой зоне, внутри жёлтой границы на карте.\nПоражение — поднимите руку и громко скажите «Убит».",
+      "photos": []
+    },
+    {
+      "id": "info-gear",
+      "title": "Снаряжение",
+      "body": "ПРИМЕР — замените своим текстом.\n\nЗащита глаз, закрытая обувь, вода, фонарь для ночной фазы.",
+      "photos": []
+    },
+    {
+      "id": "info-rent",
+      "title": "Прокат",
+      "body": "ПРИМЕР — замените своим текстом.\n\nЕсть прокат привода, защиты и формы. Ссылку на прокат добавьте сюда в виде [Прокат снаряжения](https://…).",
+      "photos": []
+    },
+    {
+      "id": "info-road",
+      "title": "Как добраться",
+      "body": "Координаты полигона: 44.672509, 33.706090\nОткрыть на карте: [Яндекс Карты](https://yandex.ru/maps/?pt=33.706090,44.672509&z=15&l=sat)",
+      "photos": []
+    }
+  ],
+  "links": [],
+  "labels": [
+    {
+      "id": "lbl-south",
+      "x": 0.52,
+      "y": 0.9,
+      "text": "Южный сектор",
+      "size": 36,
+      "color": "#ffffff",
+      "opacity": 0.35
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Полигон «Садовка»</title>
+<meta name="description" content="Игры на страйкбольном полигоне «Садовка»: сценарии, ближайшая игра и тактическая карта">
+<meta name="theme-color" content="#12170f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 5v8c0 8-5.5 13-12 15C9.5 28 4 23 4 15V7z' fill='%2312170f' stroke='%239bb86a' stroke-width='2.5'/%3E%3Cpath d='M10 17l6-6 6 6' fill='none' stroke='%239bb86a' stroke-width='2.5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ШАПКА САЙТА -->
+<header class="site-top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2l12 5v8c0 8-5.5 13-12 15C9.5 28 4 23 4 15V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 17l6-6 6 6M10 22l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    <span id="siteTitle">Полигон</span>
+  </div>
+  <div class="top-right">
+  <nav class="soc" id="socLinks" aria-label="Мы в сети"></nav>
+  <button class="iconbtn" id="btnLogin" title="Вход для админа" aria-label="Вход для админа">
+    <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+  </button>
+  </div>
+</header>
+
+<!-- ВИЗИТКА: ближайшая игра и сценарии -->
+<section class="hero" aria-labelledby="heroTitle">
+  <div class="hero__in">
+    <div class="hero__kicker">Страйкбольные игры · организаторы</div>
+    <h1 id="heroTitle">Полигон</h1>
+    <div class="sc-head"><h2>Сценарии</h2><span class="sc-hint">Выберите сценарий — ниже откроется его карта, правила и история игр</span></div>
+    <div id="nextGame"></div>
+    <div class="sc-list" id="scList"></div>
+  </div>
+</section>
+
+<!-- ЛЕГЕНДА (над картой) -->
+<section class="legend" id="legend" aria-label="Условные обозначения"></section>
+
+<!-- КАРТА -->
+<div id="app">
+  <main class="stage">
+    <div id="map" aria-label="Карта полигона"></div>
+
+    <div class="ctrl-col">
+      <button class="ctrl" id="btnZoomIn" title="Приблизить" aria-label="Приблизить">+</button>
+      <button class="ctrl" id="btnZoomOut" title="Отдалить" aria-label="Отдалить">−</button>
+      <span class="ctrl-gap"></span>
+      <button class="ctrl" id="btnFit" title="Весь полигон" aria-label="Показать весь полигон">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button class="ctrl" id="btnFilters" title="Слои карты" aria-label="Слои карты" aria-expanded="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <section class="filters" id="filters" aria-label="Слои карты">
+      <button class="filters__head" id="filtersHead" aria-expanded="true">Слои карты <span class="chev">▴</span></button>
+      <div class="filters__body" id="filtersBody"></div>
+    </section>
+
+    <div class="phase" id="phase" hidden role="group" aria-label="Положение точек">
+      <button data-phase="before">До игры</button><button data-phase="after">После игры</button>
+    </div>
+
+    <svg class="compass" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="30" fill="none" stroke="currentColor" stroke-width="1" opacity=".5"/>
+      <circle cx="50" cy="50" r="22" fill="none" stroke="currentColor" stroke-width=".6" stroke-dasharray="2 3" opacity=".5"/>
+      <path d="M50 12l6 38-6 4-6-4z" fill="currentColor"/>
+      <path d="M50 88l6-38-6-4-6 4z" fill="currentColor" opacity=".35"/>
+      <path d="M12 50l38-6 4 6-4 6zM88 50l-38-6-4 6 4 6z" fill="currentColor" opacity=".35"/>
+      <text x="50" y="9" text-anchor="middle">С</text><text x="50" y="99" text-anchor="middle">Ю</text>
+      <text x="4" y="53" text-anchor="middle">З</text><text x="96" y="53" text-anchor="middle">В</text>
+    </svg>
+
+    <div class="adminbar" id="adminbar" hidden>
+      <span class="adminbar__tag">Админ</span>
+      <button id="admNewScenario">+ Сценарий</button>
+      <button id="admNewGame">+ Игра</button>
+      <button id="admAddPoint">+ Точка</button>
+      <button id="admAddPlace" title="Постоянный объект полигона, виден на всех играх">+ Объект</button>
+      <button id="admOwner" title="Клик по точке на карте меняет её владельца">⇄ Владелец</button>
+      <button id="admArrow" title="Стрелка направления для этой игры">➚ Стрелка</button>
+      <button id="admLabel" title="Крупная подпись полигона, видна всегда">Aa Подпись</button>
+      <button id="admSettings" title="Сетка, граница полигона, стороны и команды">⚙ Настройки</button>
+      <button id="admMore" aria-expanded="false">Ещё ▾</button>
+      <div class="adminbar__menu" id="admMenu" hidden>
+        <button id="admEditScenario">Изменить сценарий…</button>
+        <button id="admEditGame">Изменить игру…</button>
+        <button id="admCheck">Проверка перед публикацией</button>
+        <button id="admExport">Скачать games.json</button>
+        <button id="admImport">Загрузить games.json…</button>
+        <button id="admDiscard" class="danger">Сбросить черновик</button>
+        <button id="admLogout">Выйти</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+
+    <div class="pickhint" id="pickhint" hidden>
+      <span id="pickText">Нажмите на карту</span>
+      <button id="pickUndo" hidden>Убрать последнюю</button>
+      <button id="pickDone" hidden>Готово</button>
+      <button id="pickCancel">Отмена</button>
+    </div>
+    <div class="draftbar" id="draftbar" hidden>
+      <span>Изменения пока видны только вам — загрузите файл на GitHub в папку data.</span>
+      <button id="draftDownload">Скачать games.json</button>
+    </div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </main>
+
+  <!-- ПРАВАЯ ПАНЕЛЬ -->
+  <aside class="panel" id="panel">
+    <div class="panel__head">
+      <button class="iconbtn back" id="panelBack" hidden aria-label="Назад">‹</button>
+      <h2 id="panelTitle">Полигон</h2>
+      <button class="iconbtn" id="panelClose" hidden aria-label="Закрыть">✕</button>
+    </div>
+    <div class="panel__body" id="panelBody"><div class="loading">Загрузка карты…</div></div>
+  </aside>
+
+  <footer class="bottombar">
+    <span id="topGame">Тактическая карта</span><span class="sep">|</span>
+    <button class="link" id="btnNight" aria-pressed="false">Ночное видение</button>
+    <span class="sep">|</span>
+    <span id="cursorInfo"></span>
+  </footer>
+</div>
+
+<!-- ИНФОРМАЦИЯ ДЛЯ ИГРОКОВ -->
+<section class="info" id="infoBlock" aria-labelledby="infoTitle"></section>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" id="lbClose" aria-label="Закрыть">✕</button>
+  <button class="lb-nav lb-prev" id="lbPrev" aria-label="Предыдущее фото">‹</button>
+  <figure>
+    <img id="lbImg" alt="">
+    <figcaption><span id="lbCap"></span><span class="lb-count" id="lbCount"></span><a id="lbOrig" target="_blank" rel="noopener">оригинал ↗</a></figcaption>
+  </figure>
+  <button class="lb-nav lb-next" id="lbNext" aria-label="Следующее фото">›</button>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="js/config.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
