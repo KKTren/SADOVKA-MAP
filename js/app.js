@@ -105,6 +105,18 @@
     if (!t || !t.logo || !safeUrl(t.logo)) return dot;
     return `<span class="tb ${cls}" style="--c:${c}"><img src="${esc(photoSrc(t.logo, 160))}" alt="Эмблема: ${esc(t.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('tb--err');this.remove()"></span>`;
   }
+  /* --- название полигона и эмблема: из админки (settings.site), иначе из js/config.js --- */
+  const siteTitle = () => (D().settings.site && D().settings.site.title) || C.siteTitle;
+  const siteLogo = () => (D().settings.site && D().settings.site.logo) || '';
+  const DEFAULT_LOGO = $('#brandLogo') ? $('#brandLogo').innerHTML : '', DEFAULT_ICON = ($('#favicon') || {}).href;
+  function renderBrand() {
+    const t = siteTitle(), l = siteLogo();
+    $('#siteTitle').textContent = t; document.title = t;
+    // картинка без подложки: прозрачный фон остаётся прозрачным
+    $('#brandLogo').innerHTML = l ? `<img src="${esc(photoSrc(l, 256))}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : DEFAULT_LOGO;
+    $('#brandLogo').classList.toggle('has-img', !!l);
+    if ($('#favicon')) $('#favicon').href = l && l.startsWith('data:') ? l : DEFAULT_ICON;
+  }
   const plural = (n, a, b, c) => { const m = n % 100, k = n % 10; return m > 10 && m < 20 ? c : k === 1 ? a : k > 1 && k < 5 ? b : c; };
   /* --- команды на стороне: на одной стороне может играть сколько угодно команд --- */
   const sideEntries = s => ((s && s.teams) || []).map(e => Object.assign({}, e, { t: D().teams.find(x => x.id === e.id) })).filter(e => e.t);
@@ -572,7 +584,7 @@
   }
   function renderHero() {
     const d = D(), f = featuredGame();
-    $('#heroTitle').textContent = C.siteTitle;
+    $('#heroTitle').textContent = siteTitle(); renderBrand();
     const g = bannerGame(), sc = curScenario();
     if (g) {
       const [y, m, dd] = g.date.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()], fut = isFuture(g);
@@ -592,7 +604,7 @@
       $('#nextGame').innerHTML = `<article class="next next--plain"><div class="next__body"><div class="next__k">Сценарий</div><h2>${esc(sc.title)}</h2>${sc.summary ? `<p>${esc(sc.summary)}</p>` : ''}<p class="next__gather">Игры по этому сценарию пока не запланированы.</p></div>
         <div class="next__acts"><button class="btn primary" data-sc="${esc(sc.id)}">Карта и правила ↓</button></div></article>`;
     } else {
-      $('#nextGame').innerHTML = `<article class="next next--plain"><div class="next__body"><div class="next__k">Полигон · местность</div><h2>${esc(C.siteTitle)}</h2>
+      $('#nextGame').innerHTML = `<article class="next next--plain"><div class="next__body"><div class="next__k">Полигон · местность</div><h2>${esc(siteTitle())}</h2>
         <p>Карта полигона без привязки к игре: граница, постоянные объекты${relief ? `, рельеф — высоты от ${relief.min} до ${relief.max} м` : ''}.</p>
         ${f ? `<p class="next__gather">Ближайшая игра: <b>${esc(fmtDate(f.date))}</b> — ${esc(f.title)} (${esc(scById(f.scenarioId)?.title || '')})</p>` : ''}</div>
         <div class="next__acts">${f ? `<button class="btn primary" data-open-game="${esc(f.id)}">К ближайшей игре</button>` : ''}<button class="btn ${f ? 'ghost' : 'primary'}" data-sc="">Карта полигона ↓</button></div></article>`;
@@ -839,7 +851,7 @@
   }
 
   function polygonHtml() {
-    let h = `<div class="gamehead"><div class="date">Превью местности</div><h3>${esc(C.siteTitle)}</h3>
+    let h = `<div class="gamehead"><div class="date">Превью местности</div><h3>${esc(siteTitle())}</h3>
       <p>Карта полигона без точек игры: граница, постоянные объекты${relief ? ' и рельеф' : ''}.</p></div>`;
     if (relief) {
       const b = relief.bounds, km = (a, c) => (a * 111.32 * c).toFixed(1).replace('.', ',');
@@ -1306,20 +1318,61 @@
         <div class="row2">${fld('Заголовок', `<input name="t${k}" maxlength="60" value="${esc(g.title)}">`)}${fld('Плашка на фото', `<input name="tag${k}" maxlength="60" value="${esc(g.tag || '')}" placeholder="например, Прокат снаряжения">`)}</div>
         ${fld('Фото', `<textarea name="ph${k}" rows="4" placeholder="https://drive.google.com/file/d/…/view | подпись">${esc(photosToText(g.photos))}</textarea>`, PHOTO_HINT + ' Файлы из папки сайта — как img/hero/имя.webp.')}
         <label class="check"><input type="checkbox" name="fit${k}" ${fit === 'contain' ? 'checked' : ''}> Показывать фото целиком, без обрезки краёв</label></section>`; };
+    const site = D().settings.site || { title: '', logo: '' };
+    let logo = site.logo || '';
     openDialog({
-      title: 'Верх сайта: галереи и таймер',
-      body: `<div class="note">Фото листаются сами, по клику открываются крупно. Если галерею оставить совсем пустой, она скроется у посетителей.</div>
+      title: 'Верх сайта: название, галереи, таймер',
+      body: `<section class="set"><h3>Название и эмблема</h3>
+          ${fld('Название полигона', `<input name="siteTitle" maxlength="80" value="${esc(site.title || C.siteTitle)}" required>`, 'Видно в шапке сайта и во вкладке браузера.')}
+          <div class="fld"><span>Эмблема (картинка слева от названия)</span>
+            <div class="logo-edit"><span class="logo-prev" id="logoPrev"></span>
+              <div class="logo-btns"><label class="btn">Загрузить картинку…<input type="file" id="logoFile" accept="image/png,image/webp,image/svg+xml,image/gif,image/jpeg" hidden></label>
+                <button type="button" class="btn ghost" id="logoDel">Убрать</button></div></div>
+            <small>Лучше PNG или WebP с прозрачным фоном — фон так и останется прозрачным, без белых краёв. Картинка уменьшится до 256 точек и сохранится прямо в данных сайта.</small></div>
+        </section>
+        <div class="note">Фото галерей листаются сами, по клику открываются крупно. Если галерею оставить совсем пустой, она скроется у посетителей.</div>
         ${gal(0)}${gal(1)}
         <section class="set"><h3>Таймер</h3>${fld('Начало игры по умолчанию', `<input type="time" name="start" value="${esc(st)}" required>`, 'Если у самой игры время не указано (поле «Начало» в окне игры), таймер считает до этого времени в день игры.')}</section>`,
-      onOpen: f => { const el = f.querySelector('#hgSet' + (focus || 0)); if (focus != null && el) setTimeout(() => el.scrollIntoView({ block: 'start' }), 30); },
+      onOpen: f => {
+        const el = f.querySelector('#hgSet' + (focus || 0)); if (focus != null && el) setTimeout(() => el.scrollIntoView({ block: 'start' }), 30);
+        const prev = () => { f.querySelector('#logoPrev').innerHTML = logo ? `<img src="${esc(photoSrc(logo, 256))}" alt="Эмблема">` : '<small>нет</small>'; f.querySelector('#logoDel').hidden = !logo; };
+        prev();
+        f.querySelector('#logoDel').onclick = () => { logo = ''; prev(); };
+        f.querySelector('#logoFile').onchange = async e => {
+          const file = e.target.files[0]; if (!file) return;
+          try { logo = await logoFromFile(file); prev(); } catch (err) { toast(err.message, 'err'); }
+        };
+      },
       onSubmit: async fd => {
         const warns = [];
         const galleries = [0, 1].map(k => { const { photos, warn } = parsePhotos(fd.get('ph' + k)); warns.push(...warn);
           return { title: fd.get('t' + k).trim(), tag: fd.get('tag' + k).trim(), fit: fd.get('fit' + k) ? 'contain' : 'cover', photos }; });
         D().settings.hero = { startTime: fd.get('start') || HC.startTime, galleries };
+        D().settings.site = { title: fd.get('siteTitle').trim(), logo };
         await commit('Верх сайта сохранён');
         if (warns.length) toast(warns.join(' '), 'err');
       }
+    });
+  }
+  /** Уменьшает картинку до 256 точек по большей стороне, сохраняя прозрачность (WebP, если браузер умеет, иначе PNG). */
+  function logoFromFile(file) {
+    return new Promise((res, rej) => {
+      if (file.size > 8e6) return rej(new Error('Файл больше 8 МБ — возьмите картинку поменьше'));
+      if (file.type === 'image/svg+xml') { // SVG — как есть, он и так лёгкий и прозрачный
+        if (file.size > 150000) return rej(new Error('SVG слишком большой (больше 150 КБ)'));
+        const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('Не удалось прочитать файл')); return r.readAsDataURL(file);
+      }
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 256 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        const x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        let d = c.toDataURL('image/webp', 0.9); if (!d.startsWith('data:image/webp')) d = c.toDataURL('image/png');
+        res(d);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Это не похоже на картинку')); };
+      img.src = url;
     });
   }
   function openSettings() {
@@ -1783,7 +1836,7 @@
   }
 
   try {
-    $('#siteTitle').textContent = C.siteTitle;
+    $('#siteTitle').textContent = C.siteTitle;   // до загрузки данных; потом renderBrand() возьмёт название из админки
     document.title = C.siteTitle;
     setNight(S.night);
     setFiltersOpen(ls.get('pm-filters-open', !isMobile()));

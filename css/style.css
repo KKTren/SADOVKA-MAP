@@ -776,3 +776,16 @@ body.has-pinbar { --pin-h: 44px; }
 .tsub__h b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tsub__h span { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
 .tsub .roster-list { margin-top: 6px; }
+
+/* ================= эмблема полигона ================= */
+.brand__logo { display: inline-flex; align-items: center; justify-content: center; flex: none; height: 34px; color: var(--olive); }
+.brand__logo svg { width: 28px; height: 28px; }
+.brand__logo img { height: 34px; width: auto; max-width: 120px; object-fit: contain; display: block; background: none; } /* без подложки — прозрачный фон остаётся прозрачным */
+.logo-edit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* шахматка в превью — видно, что фон картинки прозрачный */
+.logo-prev { width: 84px; height: 84px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: var(--radius);
+  background: var(--bar) repeating-conic-gradient(#ffffff0d 0 25%, transparent 0 50%) 0 0 / 14px 14px; }
+.logo-prev img { max-width: 76px; max-height: 76px; object-fit: contain; }
+.logo-prev small { color: var(--dim); }
+.logo-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.logo-btns label.btn { cursor: pointer; }

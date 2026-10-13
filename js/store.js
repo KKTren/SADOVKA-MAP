@@ -46,6 +46,15 @@
   const PLACE_TYPES = ['building', 'tower', 'bunker', 'point', 'flag', 'respawn', 'hq', 'parking', 'entry'];
   const OLD_STATUS = { ours: 'blue', enemy: 'red', neutral: 'grey' };
 
+  function normSite(v) {
+    v = v && typeof v === 'object' ? v : {};
+    const logo = String(v.logo || '').trim();
+    return {
+      title: String(v.title || '').trim().slice(0, 80),
+      logo: /^data:image\/(png|webp|gif|svg\+xml);base64,[a-z0-9+/=]+$/i.test(logo) && logo.length < 400000 ? logo
+        : /^(https?:\/\/|img\/)[^\s"'<>]{1,500}$/i.test(logo) ? logo : ''
+    };
+  }
   function normHero(h) {
     if (!h || typeof h !== 'object') return null;
     const str = (v, n) => String(v || '').trim().slice(0, n);
@@ -70,7 +79,9 @@
       signup: { vk: String((d.settings && d.settings.signup && d.settings.signup.vk) || '').slice(0, 300) },
       showRoster: d.settings && d.settings.showRoster != null ? !!d.settings.showRoster : true,
       // верхняя сцена: галереи и время начала по умолчанию (null — берутся из js/config.js)
-      hero: normHero(d.settings && d.settings.hero)
+      hero: normHero(d.settings && d.settings.hero),
+      // название полигона и эмблема (картинка: data:image/… из админки или ссылка); пусто — из js/config.js
+      site: normSite(d.settings && d.settings.site)
     };
     const sides = (arr(d.sides).length ? d.sides : DEFAULT_SIDES).map(s => ({ id: s.id || uid(), name: s.name || 'Сторона', color: color(s.color, '#a7aaa0') }));
     const str = (v, n) => String(v ?? '').slice(0, n);
