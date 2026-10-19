@@ -611,42 +611,10 @@
     if (!S.scId) return null;
     return curGame() || defaultGame(S.scId);
   }
-  /* ---------- календарь сезона: все игры по датам, выбранная — крупно ниже ---------- */
-  const MON3 = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-  const allGames = () => [...D().games].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title));
-  /** Игра в анонсе под лентой: выбранная кликом, иначе ближайшая, иначе последняя прошедшая. */
-  function calGame() { const l = allGames(); return l.find(g => g.id === S.calId) || featuredGame() || l.filter(g => !isFuture(g)).pop() || null; }
   function renderHero() {
     $('#heroTitle').textContent = siteTitle(); renderBrand(); renderTeamCar();
-    const d = D(), f = featuredGame(), list = allGames(), g = calGame();
-    // лента сезона
-    const line = $('#calLine'), keep = line.querySelector('.cal__track') ? line.querySelector('.cal__track').scrollLeft : null;
-    line.innerHTML = list.length ? `<div class="cal__track" role="list">${list.map((x, i) => {
-        const [, m, dd] = x.date.split('-').map(Number), past = !isFuture(x), sc = scById(x.scenarioId);
-        return `<button class="cal__i ${past ? 'is-past' : 'is-fut'} ${f && x.id === f.id ? 'is-next' : ''} ${g && x.id === g.id ? 'is-sel' : ''} ${i === 0 ? 'is-first' : ''} ${i === list.length - 1 ? 'is-last' : ''}" data-cal="${esc(x.id)}" role="listitem" aria-pressed="${!!(g && x.id === g.id)}" title="${esc(x.title)}${sc ? ' · ' + esc(sc.title) : ''}">
-          <i class="cal__o" aria-hidden="true"></i><b>${dd} ${MON3[m - 1]}</b><span class="cal__t">${esc(x.title)}</span>${f && x.id === f.id ? '<small>ближайшая</small>' : past ? '' : `<small>${esc(sc ? sc.title : '')}</small>`}</button>`;
-      }).join('')}</div>` : '<p class="hint">Игр пока нет — календарь заполнится, когда появятся игры.</p>';
-    $('#calHint').textContent = list.length ? `игр: ${list.length} · прошедшие — слева, будущие — справа; нажмите на дату` : '';
-    const tr = line.querySelector('.cal__track');
-    if (tr) { if (keep != null) tr.scrollLeft = keep; else requestAnimationFrame(() => { const s = tr.querySelector('.is-sel') || tr.querySelector('.is-next'); if (s) tr.scrollLeft = s.offsetLeft - tr.clientWidth / 2 + s.offsetWidth / 2; }); }
-    // анонс выбранной игры
-    if (g) {
-      const [y, m, dd] = g.date.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()], fut = isFuture(g), sc = scById(g.scenarioId);
-      const kick = f && f.id === g.id ? 'Ближайшая игра' : fut ? 'Запланированная игра' : 'Прошедшая игра', win = gameWinner(g);
-      $('#nextGame').innerHTML = `<article class="next next--cal ${fut ? '' : 'is-past'}">
-        <div class="next__date"><b>${dd}</b><span>${MONTHS[m - 1]}</span><small>${y !== new Date().getFullYear() ? y + ' · ' : ''}${wd}${fut ? ' · ' + esc(g.time || defStart()) : ''}</small></div>
-        <div class="next__body">
-          <div class="next__k">${kick}${sc ? ' · ' + esc(sc.title) : ''}${isMedia(g) ? ' · без карты' : ''}</div>
-          <h2>${esc(g.title)}</h2>
-          ${g.summary ? `<p>${esc(g.summary)}</p>` : ''}
-          ${g.gather && fut ? `<p class="next__gather">${esc(g.gather)}</p>` : ''}
-          ${sidesLine(g)}
-          ${!fut && win ? `<p class="next__res">Итог: ${win === 'draw' ? 'ничья' : `победила сторона <b style="color:${sideColor(win)}">${esc(sideName(win))}</b>`}</p>` : ''}
-          ${fut ? `<div class="wxs" data-wx="${esc(g.date)}"></div>` : ''}
-        </div>
-        <div class="next__acts">${fut ? `<button class="btn primary" data-signup="${esc(g.id)}">Записаться</button>${calMenu(g)}` : ''}<button class="btn ${fut ? 'ghost' : 'primary'}" data-open-game="${esc(g.id)}">Карта и правила ↓</button></div>
-      </article>`;
-    } else $('#nextGame').innerHTML = '';
+    const d = D(), f = featuredGame();
+    renderContact();
     // карточки сценариев
     const card = (id, title, sub, meta, extra = '') => `<button class="sc ${S.scId === id ? 'active' : ''} ${extra}" data-sc="${esc(id)}" aria-pressed="${S.scId === id}">${extra.includes('hot') ? '<span class="sc__rib">Ближайшая игра</span>' : ''}<h3>${esc(title)}</h3><p>${esc(sub)}</p><div class="sc__meta">${meta}</div></button>`;
     const pin = card('', 'Полигон', 'Местность, рельеф и объекты без привязки к игре', `${d.places.length} объектов${relief ? ` · высоты ${relief.min}–${relief.max} м` : ''}`, 'sc--terrain');
@@ -658,41 +626,14 @@
     $('#scList').innerHTML = pin + cards;
     renderSoc(); renderInfo(); renderScene(); renderFooter(); renderRating(); fillWeather();
   }
+  /** Оранжевая кнопка «Связаться с админом» в шапке — во ВКонтакте, куда приходят заявки. */
+  function renderContact() {
+    const b = $('#btnContact'), vk = vkChatUrl(D().settings.signup.vk);
+    b.hidden = !vk; if (vk) b.href = vk;
+  }
+
   /** Ничего не соединяем: в новой раскладке анонс и сценарии — отдельные блоки. */
   function joinTab() { const j = $('#heroJoin'); if (j) j.hidden = true; }
-  document.addEventListener('click', e => {
-    const c = e.target.closest('[data-cal]'); if (!c) return;
-    S.calId = c.dataset.cal; renderHero();
-  });
-
-  /* --- «＋ В календарь»: Google Календарь или файл .ics (iPhone, Outlook, Яндекс) с напоминанием накануне --- */
-  const icsDate = ms => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const gameEnd = g => gameStart(g) + 5 * 3600e3;   // игра — около 5 часов
-  const pageUrl = g => location.origin + location.pathname + '#s=' + encodeURIComponent(g.scenarioId) + '&g=' + encodeURIComponent(g.id);
-  function gcalUrl(g) {
-    const sc = scById(g.scenarioId), det = [g.summary, g.gather, sc ? 'Сценарий: ' + sc.title : '', pageUrl(g)].filter(Boolean).join('\n');
-    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(`${g.title} — ${siteTitle()}`) +
-      '&dates=' + icsDate(gameStart(g)) + '/' + icsDate(gameEnd(g)) + '&details=' + encodeURIComponent(det) + '&location=' + encodeURIComponent(siteTitle() + (geoCenter() ? ` (${geoCenter().map(v => v.toFixed(5)).join(', ')})` : ''));
-  }
-  function downloadIcs(g) {
-    const e = v => String(v || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-    const sc = scById(g.scenarioId), c = geoCenter();
-    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Polygon//Games//RU', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
-      `UID:${g.id}@polygon`, `DTSTAMP:${icsDate(Date.now())}`, `DTSTART:${icsDate(gameStart(g))}`, `DTEND:${icsDate(gameEnd(g))}`,
-      `SUMMARY:${e(g.title + ' — ' + siteTitle())}`, `DESCRIPTION:${e([g.summary, g.gather, sc ? 'Сценарий: ' + sc.title : '', pageUrl(g)].filter(Boolean).join('\n'))}`,
-      `LOCATION:${e(siteTitle())}`, c ? `GEO:${c[0].toFixed(5)};${c[1].toFixed(5)}` : '', `URL:${pageUrl(g)}`,
-      'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', `DESCRIPTION:${e('Завтра игра: ' + g.title)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' }));
-    a.download = `igra-${g.date}.ics`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }
-  const calMenu = g => `<details class="calm"><summary class="btn ghost">＋ В календарь</summary><div class="calm__m">
-      <a href="${esc(gcalUrl(g))}" target="_blank" rel="noopener">Google Календарь</a><button type="button" data-ics="${esc(g.id)}">Файл .ics — iPhone, Outlook, Яндекс</button>
-      <small>Напоминание придёт накануне игры</small></div></details>`;
-  document.addEventListener('click', e => {
-    const b = e.target.closest('[data-ics]'); if (b) { const g = D().games.find(x => x.id === b.dataset.ics); if (g) downloadIcs(g); b.closest('details').open = false; return; }
-    document.querySelectorAll('details.calm[open]').forEach(dd => { if (!dd.contains(e.target)) dd.open = false; });
-  });
 
   /* --- погода на день игры: Open-Meteo, прогноз на 16 дней вперёд, без ключа --- */
   /** Центр полигона [широта, долгота] — по привязке рельефа (или C.center в js/config.js). */
@@ -739,6 +680,9 @@
   const heroGals = () => { const h = D().settings.hero; return h && h.galleries.length ? h.galleries : HC.galleries; };
   const gameStart = g => { const t = /^\d{1,2}:\d{2}$/.test(g.time || '') ? g.time : defStart(); return new Date(`${g.date}T${t.padStart(5, '0')}:00${HC.timezone}`).getTime(); };
   let cdGame = null;
+  const WD2 = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  /** «25 октября, вс · 10:00» для таймера. */
+  const cdWhen = g => { const [y, m, d] = g.date.split('-').map(Number); return `${d} ${MONTHS[m - 1]}, ${WD2[new Date(y, m - 1, d).getDay()]} · ${esc(/^\d{1,2}:\d{2}$/.test(g.time || '') ? g.time : defStart())}`; };
   function renderScene() {
     const g = featuredGame(); cdGame = g;
     const sc = g ? scById(g.scenarioId) : null;
@@ -746,9 +690,10 @@
     $('#countdown').innerHTML = g
       ? `<div class="cd__title">До ближайшей игры осталось:</div>
          <div class="cd__grid">${cell('cdD', 'дней')}<i>:</i>${cell('cdH', 'часов')}<i>:</i>${cell('cdM', 'минут')}<i>:</i>${cell('cdS', 'секунд')}</div>
-         <div class="cd__next"><b>Ближайшая игра:</b> ${esc(fmtDate(g.date))} — ${esc(g.title)}</div>
+         <div class="cd__k">Ближайшая игра · ${cdWhen(g)}</div>
+         <div class="cd__name">${esc(g.title)}</div>
+         ${sc && norm(sc.title) !== norm(g.title) ? `<div class="cd__sc">Сценарий «${esc(sc.title)}»</div>` : ''}
          <div class="cd__wx" data-wx="${esc(g.date)}"></div>
-         <div class="cd__sub">${esc(g.summary ? `(${g.summary})` : sc ? `Сценарий «${sc.title}»` : '')}</div>
          <div class="cd__acts"><button class="btn primary" data-signup="${esc(g.id)}">Записаться</button><button class="btn ghost" data-open-game="${esc(g.id)}">Карта и правила ↓</button></div>`
       : `<div class="cd__title">Ближайшая игра пока не назначена</div>
          <p class="cd__sub">Следите за новостями в наших соцсетях — анонс появится здесь.</p>
@@ -892,7 +837,7 @@
   /** Якоря для ссылок подвала: #карта, #сценарии, #игрокам, #игра, #наверх, #раздел:Название раздела «Для игроков». */
   const ANCHORS = { 'наверх': 'top', top: 'top', 'сценарии': 'scenarios', scenarios: 'scenarios', 'карта': 'legend', map: 'legend',
     'игрокам': 'infoBlock', info: 'infoBlock', 'игра': 'scene', game: 'scene', 'турнир': 'tour', tour: 'tour',
-    'календарь': 'calendar', calendar: 'calendar', 'рейтинг': 'rating', rating: 'rating', 'вопросы': 'faq', faq: 'faq' };
+    'рейтинг': 'rating', rating: 'rating', 'вопросы': 'faq', faq: 'faq' };
   function goAnchor(raw) {
     const a = decodeURIComponent(String(raw || '').replace(/^#/, '')).trim(), smooth = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     const sec = a.match(/^раздел:\s*(.+)$/i);
