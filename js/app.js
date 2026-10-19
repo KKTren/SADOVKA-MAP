@@ -611,67 +611,118 @@
     if (!S.scId) return null;
     return curGame() || defaultGame(S.scId);
   }
+  /* ---------- календарь сезона: все игры по датам, выбранная — крупно ниже ---------- */
+  const MON3 = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const allGames = () => [...D().games].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '') || a.title.localeCompare(b.title));
+  /** Игра в анонсе под лентой: выбранная кликом, иначе ближайшая, иначе последняя прошедшая. */
+  function calGame() { const l = allGames(); return l.find(g => g.id === S.calId) || featuredGame() || l.filter(g => !isFuture(g)).pop() || null; }
   function renderHero() {
-    const d = D(), f = featuredGame();
     $('#heroTitle').textContent = siteTitle(); renderBrand(); renderTeamCar();
-    const g = bannerGame(), sc = curScenario();
+    const d = D(), f = featuredGame(), list = allGames(), g = calGame();
+    // лента сезона
+    const line = $('#calLine'), keep = line.querySelector('.cal__track') ? line.querySelector('.cal__track').scrollLeft : null;
+    line.innerHTML = list.length ? `<div class="cal__track" role="list">${list.map((x, i) => {
+        const [, m, dd] = x.date.split('-').map(Number), past = !isFuture(x), sc = scById(x.scenarioId);
+        return `<button class="cal__i ${past ? 'is-past' : 'is-fut'} ${f && x.id === f.id ? 'is-next' : ''} ${g && x.id === g.id ? 'is-sel' : ''} ${i === 0 ? 'is-first' : ''} ${i === list.length - 1 ? 'is-last' : ''}" data-cal="${esc(x.id)}" role="listitem" aria-pressed="${!!(g && x.id === g.id)}" title="${esc(x.title)}${sc ? ' · ' + esc(sc.title) : ''}">
+          <i class="cal__o" aria-hidden="true"></i><b>${dd} ${MON3[m - 1]}</b><span class="cal__t">${esc(x.title)}</span>${f && x.id === f.id ? '<small>ближайшая</small>' : past ? '' : `<small>${esc(sc ? sc.title : '')}</small>`}</button>`;
+      }).join('')}</div>` : '<p class="hint">Игр пока нет — календарь заполнится, когда появятся игры.</p>';
+    $('#calHint').textContent = list.length ? `игр: ${list.length} · прошедшие — слева, будущие — справа; нажмите на дату` : '';
+    const tr = line.querySelector('.cal__track');
+    if (tr) { if (keep != null) tr.scrollLeft = keep; else requestAnimationFrame(() => { const s = tr.querySelector('.is-sel') || tr.querySelector('.is-next'); if (s) tr.scrollLeft = s.offsetLeft - tr.clientWidth / 2 + s.offsetWidth / 2; }); }
+    // анонс выбранной игры
     if (g) {
-      const [y, m, dd] = g.date.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()], fut = isFuture(g);
-      const kick = f && f.id === g.id ? 'Ближайшая игра' : fut ? 'Запланированная игра' : 'Прошедшая игра';
-      $('#nextGame').innerHTML = `<article class="next">
-        <div class="next__date"><b>${dd}</b><span>${MONTHS[m - 1]}</span><small>${y !== new Date().getFullYear() ? y : wd}</small></div>
+      const [y, m, dd] = g.date.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()], fut = isFuture(g), sc = scById(g.scenarioId);
+      const kick = f && f.id === g.id ? 'Ближайшая игра' : fut ? 'Запланированная игра' : 'Прошедшая игра', win = gameWinner(g);
+      $('#nextGame').innerHTML = `<article class="next next--cal ${fut ? '' : 'is-past'}">
+        <div class="next__date"><b>${dd}</b><span>${MONTHS[m - 1]}</span><small>${y !== new Date().getFullYear() ? y + ' · ' : ''}${wd}${fut ? ' · ' + esc(g.time || defStart()) : ''}</small></div>
         <div class="next__body">
-          <div class="next__k">${kick} · ${esc(sc.title)}</div>
+          <div class="next__k">${kick}${sc ? ' · ' + esc(sc.title) : ''}${isMedia(g) ? ' · без карты' : ''}</div>
           <h2>${esc(g.title)}</h2>
           ${g.summary ? `<p>${esc(g.summary)}</p>` : ''}
           ${g.gather && fut ? `<p class="next__gather">${esc(g.gather)}</p>` : ''}
           ${sidesLine(g)}
+          ${!fut && win ? `<p class="next__res">Итог: ${win === 'draw' ? 'ничья' : `победила сторона <b style="color:${sideColor(win)}">${esc(sideName(win))}</b>`}</p>` : ''}
+          ${fut ? `<div class="wxs" data-wx="${esc(g.date)}"></div>` : ''}
         </div>
-        <div class="next__acts">${fut ? `<button class="btn primary" data-signup="${esc(g.id)}">Записаться</button>` : ''}<button class="btn ${fut ? 'ghost' : 'primary'}" data-open-game="${esc(g.id)}">Карта и правила ↓</button></div>
+        <div class="next__acts">${fut ? `<button class="btn primary" data-signup="${esc(g.id)}">Записаться</button>${calMenu(g)}` : ''}<button class="btn ${fut ? 'ghost' : 'primary'}" data-open-game="${esc(g.id)}">Карта и правила ↓</button></div>
       </article>`;
-    } else if (sc) {
-      $('#nextGame').innerHTML = `<article class="next next--plain"><div class="next__body"><div class="next__k">Сценарий</div><h2>${esc(sc.title)}</h2>${sc.summary ? `<p>${esc(sc.summary)}</p>` : ''}<p class="next__gather">Игры по этому сценарию пока не запланированы.</p></div>
-        <div class="next__acts"><button class="btn primary" data-sc="${esc(sc.id)}">Карта и правила ↓</button></div></article>`;
-    } else {
-      $('#nextGame').innerHTML = `<article class="next next--plain"><div class="next__body"><div class="next__k">Полигон · местность</div><h2>${esc(siteTitle())}</h2>
-        <p>Карта полигона без привязки к игре: граница, постоянные объекты${relief ? `, рельеф — высоты от ${relief.min} до ${relief.max} м` : ''}.</p>
-        ${f ? `<p class="next__gather">Ближайшая игра: <b>${esc(fmtDate(f.date))}</b> — ${esc(f.title)} (${esc(scById(f.scenarioId)?.title || '')})</p>` : ''}</div>
-        <div class="next__acts">${f ? `<button class="btn primary" data-open-game="${esc(f.id)}">К ближайшей игре</button>` : ''}<button class="btn ${f ? 'ghost' : 'primary'}" data-sc="">Карта полигона ↓</button></div></article>`;
-    }
+    } else $('#nextGame').innerHTML = '';
+    // карточки сценариев
     const card = (id, title, sub, meta, extra = '') => `<button class="sc ${S.scId === id ? 'active' : ''} ${extra}" data-sc="${esc(id)}" aria-pressed="${S.scId === id}">${extra.includes('hot') ? '<span class="sc__rib">Ближайшая игра</span>' : ''}<h3>${esc(title)}</h3><p>${esc(sub)}</p><div class="sc__meta">${meta}</div></button>`;
     const pin = card('', 'Полигон', 'Местность, рельеф и объекты без привязки к игре', `${d.places.length} объектов${relief ? ` · высоты ${relief.min}–${relief.max} м` : ''}`, 'sc--terrain');
-    const track = scOrder().map(s => {
-      const l = scGames(s.id), next = l.filter(isFuture)[0], last = l.filter(x => !isFuture(x)).pop();
-      const meta = (next ? `<span class="hot">Ближайшая: ${fmtDate(next.date)}</span>` : last ? `Последняя: ${fmtDate(last.date)}` : 'Игр пока нет') + ` · игр: ${l.length}`;
+    const cards = scOrder().map(s => {
+      const l = scGames(s.id), next = l.filter(isFuture)[0], last = l.filter(x => !isFuture(x)).pop(), nt = scTours(s.id).length;
+      const meta = `игр: ${l.length}${nt ? ' · турнир' : ''} · ` + (next ? `<span class="hot">следующая ${fmtDate(next.date).slice(0, 5)}</span>` : last ? `последняя ${fmtDate(last.date)}` : 'игр пока нет');
       return card(s.id, s.title, s.summary || 'Описание сценария пока не заполнено', meta, f && f.scenarioId === s.id ? 'hot' : '');
     }).join('');
-    const keepScroll = $('#scTrack') ? $('#scTrack').scrollLeft : 0;
-    $('#scList').innerHTML = `<div class="sc-pin">${pin}</div>
-      <div class="sc-car"><button class="sc-nav sc-nav--l" id="scPrev" aria-label="Прокрутить сценарии влево">‹</button>
-        <div class="sc-track" id="scTrack">${track || '<p class="hint">Сценариев пока нет.</p>'}</div>
-        <button class="sc-nav sc-nav--r" id="scNext" aria-label="Прокрутить сценарии вправо">›</button></div>`;
-    const tr = $('#scTrack'); tr.scrollLeft = keepScroll;
-    const step = dir => tr.scrollBy({ left: dir * Math.max(240, tr.clientWidth * .8), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    $('#scPrev').onclick = () => step(-1); $('#scNext').onclick = () => step(1);
-    const navState = () => { $('#scPrev').disabled = tr.scrollLeft < 4; $('#scNext').disabled = tr.scrollLeft + tr.clientWidth > tr.scrollWidth - 4; joinTab(); };
-    tr.onscroll = navState;
-    const act = tr.querySelector('.sc.active');
-    if (act && !keepScroll) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    requestAnimationFrame(navState);
-    renderSoc(); renderInfo(); renderScene(); renderFooter();
+    $('#scList').innerHTML = pin + cards;
+    renderSoc(); renderInfo(); renderScene(); renderFooter(); renderRating(); fillWeather();
   }
-  /** Соединяет анонс с выбранной плиткой одной рамкой: перемычка от низа анонса до верха плитки. */
-  function joinTab() {
-    const box = $('.hero__in'), ban = $('#nextGame .next'), act = $('#scList .sc.active'); let j = $('#heroJoin');
-    if (!j) { j = document.createElement('div'); j.id = 'heroJoin'; j.className = 'hero-join'; j.setAttribute('aria-hidden', 'true'); box.appendChild(j); }
-    if (!ban || !act) { j.hidden = true; return; }
-    const B = box.getBoundingClientRect(), nb = ban.getBoundingClientRect(), a = act.getBoundingClientRect();
-    const car = act.closest('.sc-track'), cr = car ? car.getBoundingClientRect() : null;
-    if (cr && (a.right < cr.left + 20 || a.left > cr.right - 20)) { j.hidden = true; ban.classList.remove('is-joined'); return; }
-    const left = Math.max(a.left, cr ? cr.left : a.left), right = Math.min(a.right, cr ? cr.right : a.right);
-    j.hidden = false; ban.classList.add('is-joined');
-    Object.assign(j.style, { left: (left - B.left) + 'px', width: (right - left) + 'px', top: (nb.bottom - B.top - 2) + 'px', height: (a.top - nb.bottom + 4) + 'px' });
+  /** Ничего не соединяем: в новой раскладке анонс и сценарии — отдельные блоки. */
+  function joinTab() { const j = $('#heroJoin'); if (j) j.hidden = true; }
+  document.addEventListener('click', e => {
+    const c = e.target.closest('[data-cal]'); if (!c) return;
+    S.calId = c.dataset.cal; renderHero();
+  });
+
+  /* --- «＋ В календарь»: Google Календарь или файл .ics (iPhone, Outlook, Яндекс) с напоминанием накануне --- */
+  const icsDate = ms => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const gameEnd = g => gameStart(g) + 5 * 3600e3;   // игра — около 5 часов
+  const pageUrl = g => location.origin + location.pathname + '#s=' + encodeURIComponent(g.scenarioId) + '&g=' + encodeURIComponent(g.id);
+  function gcalUrl(g) {
+    const sc = scById(g.scenarioId), det = [g.summary, g.gather, sc ? 'Сценарий: ' + sc.title : '', pageUrl(g)].filter(Boolean).join('\n');
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(`${g.title} — ${siteTitle()}`) +
+      '&dates=' + icsDate(gameStart(g)) + '/' + icsDate(gameEnd(g)) + '&details=' + encodeURIComponent(det) + '&location=' + encodeURIComponent(siteTitle() + (geoCenter() ? ` (${geoCenter().map(v => v.toFixed(5)).join(', ')})` : ''));
   }
+  function downloadIcs(g) {
+    const e = v => String(v || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+    const sc = scById(g.scenarioId), c = geoCenter();
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Polygon//Games//RU', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+      `UID:${g.id}@polygon`, `DTSTAMP:${icsDate(Date.now())}`, `DTSTART:${icsDate(gameStart(g))}`, `DTEND:${icsDate(gameEnd(g))}`,
+      `SUMMARY:${e(g.title + ' — ' + siteTitle())}`, `DESCRIPTION:${e([g.summary, g.gather, sc ? 'Сценарий: ' + sc.title : '', pageUrl(g)].filter(Boolean).join('\n'))}`,
+      `LOCATION:${e(siteTitle())}`, c ? `GEO:${c[0].toFixed(5)};${c[1].toFixed(5)}` : '', `URL:${pageUrl(g)}`,
+      'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', `DESCRIPTION:${e('Завтра игра: ' + g.title)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' }));
+    a.download = `igra-${g.date}.ics`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  const calMenu = g => `<details class="calm"><summary class="btn ghost">＋ В календарь</summary><div class="calm__m">
+      <a href="${esc(gcalUrl(g))}" target="_blank" rel="noopener">Google Календарь</a><button type="button" data-ics="${esc(g.id)}">Файл .ics — iPhone, Outlook, Яндекс</button>
+      <small>Напоминание придёт накануне игры</small></div></details>`;
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-ics]'); if (b) { const g = D().games.find(x => x.id === b.dataset.ics); if (g) downloadIcs(g); b.closest('details').open = false; return; }
+    document.querySelectorAll('details.calm[open]').forEach(dd => { if (!dd.contains(e.target)) dd.open = false; });
+  });
+
+  /* --- погода на день игры: Open-Meteo, прогноз на 16 дней вперёд, без ключа --- */
+  /** Центр полигона [широта, долгота] — по привязке рельефа (или C.center в js/config.js). */
+  const geoCenter = () => relief && relief.bounds ? [(relief.bounds.nw[0] + relief.bounds.se[0]) / 2, (relief.bounds.nw[1] + relief.bounds.se[1]) / 2] : (Array.isArray(C.center) ? C.center : null);
+  const WX_ICON = c => c === 0 ? '☀️' : c <= 2 ? '🌤️' : c === 3 ? '☁️' : c <= 48 ? '🌫️' : c <= 57 ? '🌦️' : c <= 67 ? '🌧️' : c <= 77 ? '🌨️' : c <= 82 ? '🌧️' : c <= 86 ? '🌨️' : '⛈️';
+  let WX = null, wxLoading = null;
+  function loadWeather() {
+    if (wxLoading) return wxLoading;
+    const c = geoCenter(); if (!c) return Promise.resolve(null);
+    try { const s = JSON.parse(sessionStorage.getItem('pm-wx') || 'null'); if (s && Date.now() - s.at < 3 * 3600e3) { WX = s.d; return (wxLoading = Promise.resolve(WX)); } } catch (e) {}
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${c[0].toFixed(4)}&longitude=${c[1].toFixed(4)}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&wind_speed_unit=ms&timezone=Europe%2FMoscow&forecast_days=16`;
+    wxLoading = fetch(u).then(r => r.ok ? r.json() : null).then(j => {
+      if (!j || !j.daily) return null;
+      const D0 = j.daily, out = {};
+      D0.time.forEach((t, i) => { out[t] = { code: D0.weather_code[i], max: Math.round(D0.temperature_2m_max[i]), min: Math.round(D0.temperature_2m_min[i]), pp: D0.precipitation_probability_max[i], wind: Math.round(D0.wind_speed_10m_max[i]) }; });
+      WX = out; try { sessionStorage.setItem('pm-wx', JSON.stringify({ at: Date.now(), d: out })); } catch (e) {}
+      return out;
+    }).catch(() => null);
+    return wxLoading;
+  }
+  const sgn = v => (v > 0 ? '+' : '') + v + '°';
+  function fillWeather() {
+    const els = document.querySelectorAll('[data-wx]'); if (!els.length) return;
+    const put = () => els.forEach(el => {
+      const w = WX && WX[el.dataset.wx];
+      el.innerHTML = w ? `<span class="wx" title="Прогноз погоды на полигоне, Open-Meteo">${WX_ICON(w.code)} <b>${sgn(w.max)}</b> днём · ночью ${sgn(w.min)} · 💨 ${w.wind} м/с${w.pp != null ? ` · ☔ ${w.pp}%` : ''}<small>прогноз на ${fmtDate(el.dataset.wx).slice(0, 5)}</small></span>` : '';
+    });
+    if (WX) put(); else loadWeather().then(put);
+  }
+
   window.addEventListener('resize', () => joinTab());
   function renderSoc() {
     $('#socLinks').innerHTML = D().links.map(l => {
@@ -696,6 +747,7 @@
       ? `<div class="cd__title">До ближайшей игры осталось:</div>
          <div class="cd__grid">${cell('cdD', 'дней')}<i>:</i>${cell('cdH', 'часов')}<i>:</i>${cell('cdM', 'минут')}<i>:</i>${cell('cdS', 'секунд')}</div>
          <div class="cd__next"><b>Ближайшая игра:</b> ${esc(fmtDate(g.date))} — ${esc(g.title)}</div>
+         <div class="cd__wx" data-wx="${esc(g.date)}"></div>
          <div class="cd__sub">${esc(g.summary ? `(${g.summary})` : sc ? `Сценарий «${sc.title}»` : '')}</div>
          <div class="cd__acts"><button class="btn primary" data-signup="${esc(g.id)}">Записаться</button><button class="btn ghost" data-open-game="${esc(g.id)}">Карта и правила ↓</button></div>`
       : `<div class="cd__title">Ближайшая игра пока не назначена</div>
@@ -756,14 +808,15 @@
       scene.addEventListener('mousemove', e => { const r = scene.getBoundingClientRect(); mx = (e.clientX - r.left) / r.width - .5; my = (e.clientY - r.top) / r.height - .5; req(); });
   })();
   function renderInfo() {
-    const list = D().info, admin = store.canWrite();
-    if (!list.length && !admin) { $('#infoBlock').innerHTML = ''; $('#infoBlock').hidden = true; return; }
+    const list = D().info, admin = store.canWrite(), fq = faqHtml();
+    if (!list.length && !fq && !admin) { $('#infoBlock').innerHTML = ''; $('#infoBlock').hidden = true; return; }
     $('#infoBlock').hidden = false;
     for (const k in galleries) if (k.startsWith('info')) delete galleries[k];
-    $('#infoBlock').innerHTML = `<div class="info__in"><div class="info__head"><h2 id="infoTitle">Для игроков</h2>${admin ? '<button class="btn" id="infoEdit">Изменить разделы</button>' : ''}</div>` +
+    $('#infoBlock').innerHTML = `<div class="info__in"><div class="info__head"><h2 id="infoTitle">Для игроков</h2>${admin ? '<button class="btn" id="infoEdit">Изменить разделы</button>' : ''}</div>` + fq +
       (list.length ? list.map((s, i) => `<details class="acc"><summary><span>${esc(s.title)}</span><i aria-hidden="true">+</i></summary><div class="acc__b">${richText(s.body)}${gallery('info' + i, s.photos)}</div></details>`).join('')
         : '<p class="hint">Разделов пока нет. Нажмите «Изменить разделы», чтобы добавить правила, снаряжение, прокат.</p>') + '</div>';
     const b = $('#infoEdit'); if (b) b.onclick = openInfoForm;
+    const fe = $('#faqEdit'); if (fe) fe.onclick = openFaqForm;
   }
   document.addEventListener('click', e => {
     const c = e.target.closest('[data-sc]');
@@ -838,7 +891,8 @@
      ================================================================ */
   /** Якоря для ссылок подвала: #карта, #сценарии, #игрокам, #игра, #наверх, #раздел:Название раздела «Для игроков». */
   const ANCHORS = { 'наверх': 'top', top: 'top', 'сценарии': 'scenarios', scenarios: 'scenarios', 'карта': 'legend', map: 'legend',
-    'игрокам': 'infoBlock', info: 'infoBlock', 'игра': 'scene', game: 'scene', 'турнир': 'tour', tour: 'tour' };
+    'игрокам': 'infoBlock', info: 'infoBlock', 'игра': 'scene', game: 'scene', 'турнир': 'tour', tour: 'tour',
+    'календарь': 'calendar', calendar: 'calendar', 'рейтинг': 'rating', rating: 'rating', 'вопросы': 'faq', faq: 'faq' };
   function goAnchor(raw) {
     const a = decodeURIComponent(String(raw || '').replace(/^#/, '')).trim(), smooth = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
     const sec = a.match(/^раздел:\s*(.+)$/i);
@@ -861,7 +915,7 @@
   function defaultFootGroups() {
     const d = D(), out = [];
     out.push({ title: 'Сайт', links: [{ label: 'Ближайшая игра', url: '#игра' }, { label: 'Сценарии', url: '#сценарии' }, { label: 'Карта полигона', url: '#карта' }]
-      .concat(d.info.length ? [{ label: 'Для игроков', url: '#игрокам' }] : []) });
+      .concat(d.info.length ? [{ label: 'Для игроков', url: '#игрокам' }] : []).concat(arrivalGeo() ? [{ label: '🧭 Маршрут до полигона', url: yaRoute(arrivalGeo()) }] : []) });
     if (d.info.length) out.push({ title: 'Для игроков', links: d.info.slice(0, 8).map(s => ({ label: s.title, url: '#раздел:' + s.title })) });
     const net = d.links.map(l => ({ label: l.label || (SOC[l.kind] || SOC.site).name, url: l.kind === 'phone' && !/^tel:/i.test(l.url) ? 'tel:' + l.url.replace(/[^\d+]/g, '') : l.url }));
     if (net.length) out.push({ title: 'Мы в сети', links: net });
@@ -968,6 +1022,7 @@
     on('editGameBtn', () => openGameForm(curGame()));
     on('editScBtn', () => openScenarioForm(curScenario()));
     on('dupGameBtn', () => duplicateGame(curGame()));
+    on('playBtn', () => startPlay(0));
     const ts = body.querySelector('#tourSelect'); if (ts) ts.onchange = e => { S.tourId = e.target.value; renderPanel(); syncHash(); };
     body.querySelectorAll('[data-newtour]').forEach(b => b.onclick = () => openTourForm(null, b.dataset.newtour));
     body.querySelectorAll('[data-edittour]').forEach(b => b.onclick = () => openTourForm(curTour()));
@@ -1060,7 +1115,7 @@
       const teamBlock = e => {
         const ppl = e.t.players.filter(p => e.present.includes(p.id)), cnt = entryCount(e);
         const body = ppl.length && showNames ? `<ul class="roster-list">${ppl.map(p => `<li><b>${esc(p.callsign || '—')}</b>${p.role ? `<span class="rl-role rl-${p.role}">${ROLE[p.role]}</span>` : ''}${p.rank ? `<small>${esc(p.rank)}</small>` : ''}</li>`).join('')}</ul>` : '';
-        return `<div class="tsub"><div class="tsub__h">${teamBadge(e.id, id, 'tb--m')}<b>${esc(e.t.name)}</b>${cnt != null ? `<span>${cnt} чел.${ppl.length && !showNames ? ' · имена скрыты' : ''}</span>` : ''}</div>${body}</div>`;
+        return `<div class="tsub"><div class="tsub__h">${teamBadge(e.id, id, 'tb--m')}<b><button class="link tc-link" data-team-card="${esc(e.id)}">${esc(e.t.name)}</button></b>${cnt != null ? `<span>${cnt} чел.${ppl.length && !showNames ? ' · имена скрыты' : ''}</span>` : ''}</div>${body}</div>`;
       };
       const body = l.length ? l.map(teamBlock).join('') : `<p class="hint">${isFuture(g) ? 'Команды пока не указаны.' : 'Команды не указаны.'}</p>`;
       return `<section class="tcard" style="--c:${sideColor(id)}"><div class="tcard__h"><i class="tb-dot" style="--c:${sideColor(id)}"></i>
@@ -1072,7 +1127,8 @@
   function chainHtml(sc) {
     const l = scGames(sc.id);
     if (!l.length) return '<div class="box" style="color:var(--muted)">Игр пока нет.</div>';
-    return `<p class="hint" style="margin:0 0 10px">Игры идут цепочкой: каждая начинается с того положения, которым закончилась предыдущая. Нажмите на игру — карта слева покажет её${S.gameId ? ', а подробности — на вкладке <button class="link" data-tab="game">«Игра»</button>' : ''}.</p><ol class="chain">` + l.map((g, i) => {
+    const canPlay = playList(sc.id).length > 1;
+    return (canPlay ? `<button class="btn primary play-btn" id="playBtn">${S.play ? '⟲ Проиграть заново' : '▶ Проиграть кампанию на карте'}</button>` : '') + `<p class="hint" style="margin:0 0 10px">Игры идут цепочкой: каждая начинается с того положения, которым закончилась предыдущая. Нажмите на игру — карта слева покажет её${S.gameId ? ', а подробности — на вкладке <button class="link" data-tab="game">«Игра»</button>' : ''}.</p><ol class="chain">` + l.map((g, i) => {
       const ch = changesOf(g);
       return `<li><button class="fcard ${g.id === S.gameId ? 'active' : ''}" data-game="${esc(g.id)}" aria-pressed="${g.id === S.gameId}">
         <div class="date">${i + 1}. ${esc(fmtDate(g.date))}${isFuture(g) ? ' · скоро' : ''}</div><h4>${esc(g.title)}</h4>
@@ -1119,7 +1175,9 @@
     let h = `<div class="pcard" style="--c:var(--place)"><span class="big">${iconOf(p, 'building')}</span>
         <div><div class="k">${esc(PLACE_TYPES[p.type] || 'Объект')}</div><h3>${esc(p.name)}</h3><div class="t">Постоянный объект, есть на всех играх</div></div></div>`;
     if (p.note) h += `<div class="sec"><div class="sec__t">Описание</div><div class="box">${esc(p.note)}</div></div>`;
-    h += `<div class="sec"><div class="sec__t">Координаты</div><div class="box mono">${coordsBox(p.x, p.y)}</div></div>`;
+    const ll = placeGeo(p);
+    if (p.type === 'entry' || p.type === 'parking') h += routeHtml(p);
+    h += `<div class="sec"><div class="sec__t">Координаты</div><div class="box mono">${coordsBox(p.x, p.y)}${ll ? `<br>GPS <b>${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}</b>` : ''}</div>${p.type === 'entry' || p.type === 'parking' ? '' : routeHtml(p)}</div>`;
     if (p.photos.length) h += `<div class="sec"><div class="sec__t">Фото <span>${p.photos.length}</span></div>${gallery('pl', p.photos)}</div>`;
     if (store.canWrite()) h += `<div class="admin-actions"><button class="btn" id="editPlaceBtn">Изменить объект</button></div><p class="hint">Чтобы переместить объект, перетащите его на карте.</p>`;
     const body = $('#panelBody'); body.innerHTML = h; body.scrollTop = 0;
@@ -1160,8 +1218,8 @@
   function slotHtml(p, m) {
     if (!p.team) return `<span class="bk-t bk-t--tbd">Победитель матча ${p.from}</span>`;
     const t = teamById(p.team), win = m && m.winner === p.team, lose = m && m.winner && !win;
-    const adm = store.canWrite() && m && m.a.team && m.b.team, tag = adm ? 'button' : 'span';
-    return `<${tag} ${adm ? `type="button" data-win="${esc(m.key)}" data-tour="${esc(m.tid)}" data-team="${esc(p.team)}" title="${win ? 'Снять победу' : 'Отметить победителем'}" aria-pressed="${win}"` : ''} class="bk-t ${win ? 'is-win' : ''} ${lose ? 'is-lose' : ''}">${teamBadge(p.team, '', 'tb--s')}<b>${esc(t ? t.name : '—')}</b>${win ? '<i class="bk-w" aria-label="победа">✓</i>' : ''}</${tag}>`;
+    const adm = store.canWrite() && m && m.a.team && m.b.team, tag = 'button';
+    return `<${tag} type="button" ${adm ? `data-win="${esc(m.key)}" data-tour="${esc(m.tid)}" data-team="${esc(p.team)}" title="${win ? 'Снять победу' : 'Отметить победителем'}" aria-pressed="${win}"` : `data-team-card="${esc(p.team)}" title="Карточка команды"`} class="bk-t ${win ? 'is-win' : ''} ${lose ? 'is-lose' : ''}">${teamBadge(p.team, '', 'tb--s')}<b>${esc(t ? t.name : '—')}</b>${win ? '<i class="bk-w" aria-label="победа">✓</i>' : ''}</${tag}>`;
   }
   const matchHtml = m => `<div class="bk-m ${m.winner ? 'is-done' : ''}">
       <div class="bk-m__h"><span>Матч ${m.num}</span>${m.score ? `<b class="bk-score">${esc(m.score)}</b>` : ''}${store.canWrite() ? `<button type="button" class="bk-ed" data-medit="${esc(m.key)}" data-tour="${esc(m.tid)}" title="Счёт и примечание" aria-label="Счёт и примечание: матч ${m.num}">✎</button>` : ''}</div>
@@ -1187,7 +1245,7 @@
       if (k === 0 || r.points !== prev) { place = k + 1; prev = r.points; }
       const tm = teamById(r.team), pts = r.points != null ? String(r.points).replace('.', ',') : '—';
       return `<li class="lb-r ${place <= 3 && r.points != null ? 'lb-r--' + place : ''}"><span class="lb-n">${place}</span>${teamBadge(r.team, '', 'tb--s')}
-        <div class="lb-t"><b>${esc(tm.name)}</b>${r.note ? `<small>${esc(r.note)}</small>` : ''}</div>
+        <div class="lb-t"><b><button class="link tc-link" data-team-card="${esc(r.team)}">${esc(tm.name)}</button></b>${r.note ? `<small>${esc(r.note)}</small>` : ''}</div>
         <span class="lb-p">${pts}${r.points != null ? `<small>${plural(Math.abs(Math.round(r.points)), 'очко', 'очка', 'очков')}</small>` : ''}</span></li>`;
     }).join('') + '</ol>';
   }
@@ -1324,7 +1382,7 @@
 
   /* --- турнир поверх карты: можно свернуть в плашку (запоминается в браузере) --- */
   function renderTourOverlay() {
-    const el = $('#tourOv'), t = overlayTour();
+    const el = $('#tourOv'), t = S.play ? null : overlayTour();   // во время «Проиграть кампанию» сетка не закрывает карту
     if (!t) { el.hidden = true; el.innerHTML = ''; el.dataset.tid = ''; return; }
     const st = ls.get('pm-tov-min', {}), min = st[t.id] ?? isMobile();
     const old = el.querySelector('.tov__body'), sl = old && el.dataset.tid === t.id ? [old.scrollLeft, old.scrollTop] : [0, 0];
@@ -1354,7 +1412,7 @@
     el.hidden = !on;
     if (!on) { el.innerHTML = ''; el.dataset.key = ''; return; }
     const key = list.map(t => t.id + '|' + t.logo + '|' + t.name).join('§'); if (el.dataset.key === key) return; el.dataset.key = key;
-    const item = (t, dup) => `<span class="tcar__i" title="${esc(t.name)}"${dup ? '' : ` role="listitem"`}><img src="${esc(photoSrc(t.logo, 160))}" alt="${dup ? '' : esc(t.name)}" loading="lazy" referrerpolicy="no-referrer" onload="this.parentNode.classList.add('ok')" onerror="this.parentNode.remove()"></span>`;
+    const item = (t, dup) => `<button type="button" class="tcar__i" data-team-card="${esc(t.id)}" title="${esc(t.name)} — карточка команды"${dup ? ' tabindex="-1" aria-hidden="true"' : ` role="listitem"`}><img src="${esc(photoSrc(t.logo, 160))}" alt="${dup ? '' : esc(t.name)}" loading="lazy" referrerpolicy="no-referrer" onload="this.parentNode.classList.add('ok')" onerror="this.parentNode.remove()"></button>`;
     el.innerHTML = `<div class="tcar__track"><div class="tcar__set" role="list">${list.map(t => item(t)).join('')}</div><div class="tcar__set" aria-hidden="true">${list.map(t => item(t, true)).join('')}</div></div>`;
     el.querySelectorAll('img').forEach(i => i.addEventListener('load', fitCar));
     requestAnimationFrame(fitCar);
@@ -1369,6 +1427,368 @@
   }
   addEventListener('resize', fitCar);
 
+  /* ================================================================
+     РЕЙТИНГ КОМАНД И КАРТОЧКА КОМАНДЫ
+     ================================================================ */
+  /** Победитель игры: указан в форме игры, иначе (авто) — сторона, у которой после игры больше точек. */
+  function gameWinner(g) {
+    if (!g || isFuture(g)) return '';
+    if (g.winner) return g.winner;
+    if (isMedia(g) || !g.points.length) return '';
+    const c = {}; g.points.forEach(p => { if (p.after) c[p.after] = (c[p.after] || 0) + 1; });
+    const top = Object.entries(c).sort((a, b) => b[1] - a[1]);
+    if (!top.length) return '';
+    return top.length > 1 && top[0][1] === top[1][1] ? 'draw' : top[0][0];
+  }
+  /** Места команд в турнире: сетка — 1 победитель, 2 финалист, 3 проигравшие в полуфинале; список — по очкам. */
+  function tourPlaces(t) {
+    const out = [];
+    if (t.kind === 'list') {
+      const rows = t.rows.filter(r => r.points != null && teamById(r.team)).sort((a, b) => b.points - a.points);
+      let place = 0, prev; rows.forEach((r, k) => { if (k === 0 || r.points !== prev) { place = k + 1; prev = r.points; } out.push([r.team, place]); });
+      return out;
+    }
+    const B = bracket(t); if (!B.champion) return out;
+    out.push([B.champion, 1]);
+    const R = B.rounds, fin = R[R.length - 1].matches[0];
+    if (fin) { const l = fin.a.team === B.champion ? fin.b.team : fin.a.team; if (l) out.push([l, 2]); }
+    if (R.length > 1) R[R.length - 2].matches.forEach(m => { if (m.winner) { const l = m.a.team === m.winner ? m.b.team : m.a.team; if (l) out.push([l, 3]); } });
+    return out;
+  }
+  /** Год турнира — по последней игре его сценария (турнир без игр — текущий год). */
+  const tourYear = t => { const l = scGames(t.scenarioId); return l.length ? +l[l.length - 1].date.slice(0, 4) : new Date().getFullYear(); };
+  function teamStats(year) {
+    const R = D().settings.rating, st = new Map();
+    const get = id => { if (!st.has(id)) st.set(id, { id, games: 0, wins: 0, draws: 0, points: 0, tours: [], sides: {}, list: [] }); return st.get(id); };
+    D().games.filter(g => !isFuture(g) && (!year || +g.date.slice(0, 4) === year)).forEach(g => {
+      const w = gameWinner(g);
+      for (const sid in g.sides) sideEntries(g.sides[sid]).forEach(e => {
+        const s = get(e.id); s.games++; s.sides[sid] = (s.sides[sid] || 0) + 1;
+        if (w === sid) s.wins++; else if (w === 'draw') s.draws++;
+        if (!isMedia(g)) s.points += g.points.filter(p => p.after === sid && p.before !== sid).length;
+      });
+    });
+    (D().tournaments || []).forEach(t => { if (year && tourYear(t) !== year) return; tourPlaces(t).forEach(([id, place]) => { if (place <= 3) get(id).tours.push({ t, place }); }); });
+    st.forEach(s => { s.score = Math.round((s.games * R.game + s.wins * R.win + s.draws * R.draw + s.points * R.point + s.tours.reduce((a, x) => a + (R['t' + x.place] || 0), 0)) * 10) / 10; });
+    return [...st.values()].filter(s => teamById(s.id)).sort((a, b) => b.score - a.score || b.wins - a.wins || b.games - a.games || teamById(a.id).name.localeCompare(teamById(b.id).name, 'ru'));
+  }
+  const seasons = () => [...new Set(D().games.filter(g => !isFuture(g)).map(g => +g.date.slice(0, 4)))].sort((a, b) => b - a);
+  const MEDAL = ['', '🏆', '🥈', '🥉'];
+  const tourCell = s => s.tours.length ? s.tours.sort((a, b) => a.place - b.place).map(x => `<span title="${esc(x.t.title)} — ${x.place} место">${MEDAL[x.place]}</span>`).join(' ') : '—';
+  function renderRating() {
+    const el = $('#rating'); if (!el) return;
+    const R = D().settings.rating, admin = store.canWrite(), ys = seasons();
+    if (!S.ratingYear || !ys.includes(S.ratingYear)) S.ratingYear = ys.includes(new Date().getFullYear()) ? new Date().getFullYear() : ys[0];
+    const list = S.ratingYear ? teamStats(S.ratingYear) : [];
+    if ((!R.show || !list.length) && !admin) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    const all = S.ratingAll, rows = all ? list : list.slice(0, 10);
+    el.innerHTML = `<div class="rt-in"><div class="info__head"><div><h2>Рейтинг команд${S.ratingYear ? ` · сезон ${S.ratingYear}` : ''}</h2>
+        <p class="rt-sub">Считается сам: участие, победы в играх, взятые точки и призовые места в турнирах. Нажмите на команду — откроется её карточка.</p></div>
+        <div class="rt-acts">${ys.length > 1 ? `<select id="ratingYear" aria-label="Сезон">${ys.map(y => `<option ${y === S.ratingYear ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}${admin ? '<button class="btn" id="ratingSet">⚙ Как считать очки</button>' : ''}</div></div>
+      ${!R.show ? '<p class="hint">Рейтинг скрыт от посетителей — включите его в «⚙ Как считать очки».</p>' : ''}
+      ${list.length ? `<div class="rt-wrap"><table class="rtab"><thead><tr><th>#</th><th>Команда</th><th>Игр</th><th>Побед</th><th>Точек взято</th><th>Турниры</th><th>Очки</th></tr></thead><tbody>
+        ${rows.map((s, i) => { const t = teamById(s.id); return `<tr class="${i < 3 ? 'top' + (i + 1) : ''}"><td class="n">${i + 1}</td><td><button class="rt-team" data-team-card="${esc(s.id)}">${teamBadge(s.id, '', 'tb--s')}<span>${esc(t.name)}</span></button></td>
+          <td class="c">${s.games}</td><td class="c">${s.wins}${s.draws ? `<small> +${s.draws}н</small>` : ''}</td><td class="c">${s.points}</td><td class="c">${tourCell(s)}</td><td class="c pts">${String(s.score).replace('.', ',')}</td></tr>`; }).join('')}
+        </tbody></table></div>${list.length > 10 ? `<button class="btn ghost rt-more" id="ratingAll">${all ? 'Свернуть' : `Показать всех (${list.length})`}</button>` : ''}`
+      : '<div class="box" style="color:var(--muted)">Пока не из чего считать: назначьте командам стороны в прошедших играх («Изменить игру» → стороны и команды).</div>'}</div>`;
+    const ys2 = $('#ratingYear'); if (ys2) ys2.onchange = e => { S.ratingYear = +e.target.value; renderRating(); };
+    const ra = $('#ratingAll'); if (ra) ra.onclick = () => { S.ratingAll = !S.ratingAll; renderRating(); };
+    const rs = $('#ratingSet'); if (rs) rs.onclick = openRatingForm;
+  }
+  function openRatingForm() {
+    const R = D().settings.rating;
+    const n = (k, l) => fld(l, `<input type="number" name="${k}" min="0" max="1000" step="0.5" value="${R[k]}" required>`);
+    openDialog({
+      title: 'Рейтинг команд: как считать очки',
+      body: `<label class="check"><input type="checkbox" name="show" ${R.show ? 'checked' : ''}> Показывать рейтинг посетителям</label>
+        <div class="row3">${n('game', 'За участие в игре')}${n('win', 'За победу стороны')}${n('draw', 'За ничью')}</div>
+        <div class="row3">${n('point', 'За взятую точку')}${n('t1', 'Турнир: 1 место')}${n('t2', 'Турнир: 2 место')}</div>
+        <div class="row3">${n('t3', 'Турнир: 3 место')}</div>
+        <div class="note">Очки получает каждая команда стороны. «Победа» — сторона, указанная в поле «Итог игры» в окне игры; если там «авто», побеждает сторона, у которой после игры больше точек. «Взятая точка» — точка, которая за игру перешла к этой стороне.</div>`,
+      onSubmit: async fd => {
+        const o = { show: !!fd.get('show') }; ['game', 'win', 'draw', 'point', 't1', 't2', 't3'].forEach(k => { o[k] = +fd.get(k) || 0; });
+        D().settings.rating = o; await commit('Рейтинг пересчитан');
+      }
+    });
+  }
+  /** Карточка команды: эмблема, итоги за всё время, игры и турниры. */
+  function openTeamCard(id) {
+    const t = teamById(id); if (!t) return;
+    const s = teamStats(null).find(x => x.id === id) || { games: 0, wins: 0, draws: 0, points: 0, tours: [], sides: {} };
+    const fav = Object.entries(s.sides).sort((a, b) => b[1] - a[1])[0], season = S.ratingYear ? teamStats(S.ratingYear) : [], si = season.findIndex(x => x.id === id);
+    const games = D().games.filter(g => Object.keys(g.sides).some(sid => sideEntries(g.sides[sid]).some(e => e.id === id))).sort((a, b) => b.date.localeCompare(a.date));
+    const sideOf = g => Object.keys(g.sides).find(sid => sideEntries(g.sides[sid]).some(e => e.id === id));
+    const res = (g, sid) => { if (isFuture(g)) return 'скоро'; const w = gameWinner(g); return !w ? 'сыграна' : w === 'draw' ? 'ничья' : w === sid ? '<b class="ok">победа</b>' : 'поражение'; };
+    const logo = t.logo && safeUrl(t.logo) ? `<img src="${esc(photoSrc(t.logo, 256))}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tc-ini',textContent:'${esc(t.name.slice(0, 1).toUpperCase())}'}))">` : `<span class="tc-ini">${esc(t.name.slice(0, 1).toUpperCase())}</span>`;
+    openDialog({
+      title: 'Команда',
+      body: `<div class="tc-head"><span class="tc-logo">${logo}</span><div><h3>${esc(t.name)}</h3>
+          <p>${games.length ? `Игр на полигоне: ${games.length}` : 'Ещё не играла на полигоне'}${fav ? ` · чаще за <b style="color:${sideColor(fav[0])}">${esc(sideName(fav[0]))}</b>` : ''}${t.players.length ? ` · в составе ${t.players.length} ${plural(t.players.length, 'боец', 'бойца', 'бойцов')}` : ''}</p>
+          ${si >= 0 ? `<p class="tc-rank">${si + 1}-е место в рейтинге сезона ${S.ratingYear} · ${String(season[si].score).replace('.', ',')} очк.</p>` : ''}</div></div>
+        <div class="tc-stats"><div><b>${s.games}</b><span>игр</span></div><div><b>${s.wins}</b><span>побед</span></div><div><b>${s.points}</b><span>точек взято</span></div><div><b>${s.tours.length ? s.tours.map(x => MEDAL[x.place]).join('') : '—'}</b><span>турниры</span></div></div>
+        ${s.tours.length ? `<div class="sec__t">Турниры</div><ul class="tc-list">${s.tours.map(x => `<li><i>${MEDAL[x.place]}</i><b>${esc(x.t.title)}</b><small>${x.place} место</small></li>`).join('')}</ul>` : ''}
+        ${games.length ? `<div class="sec__t">Игры команды</div><ul class="tc-list">${games.map(g => { const sid = sideOf(g), sc = scById(g.scenarioId);
+          return `<li><button type="button" data-open-game="${esc(g.id)}" data-close-dlg><i class="dot" style="background:${sideColor(sid)}"></i><b>${esc(g.title)}</b><span>${esc(sc ? sc.title : '')} · ${esc(sideName(sid))}</span><small>${esc(fmtDate(g.date))} · ${res(g, sid)}</small></button></li>`; }).join('')}</ul>` : ''}`
+    });
+  }
+  document.addEventListener('click', e => {
+    const c = e.target.closest('[data-team-card]'); if (c) { e.preventDefault(); openTeamCard(c.dataset.teamCard); return; }
+    if (e.target.closest('[data-close-dlg]') && $('#dlg').open) $('#dlg').close();
+  });
+
+  /* ================================================================
+     ПРОКАТ, МАРШРУТ, «ПЕРВЫЙ РАЗ?»
+     ================================================================ */
+  const rub = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₽';
+  function openRentalForm() {
+    const R = D().settings.rental;
+    const row = i => `<div class="erow rn-r" data-id="${esc(i.id)}" data-drag="${esc(i.id)}" draggable="true"><span class="grip" title="Перетащите">⋮⋮</span>
+      <input class="rn-n" value="${esc(i.name)}" maxlength="80" placeholder="Комплект, например «Привод + 2 магазина»" aria-label="Название"><input class="rn-p" type="number" min="0" step="10" value="${i.price ?? ''}" placeholder="₽" aria-label="Цена, ₽">
+      <input class="rn-d" value="${esc(i.note || '')}" maxlength="120" placeholder="примечание" aria-label="Примечание"><button type="button" class="iconbtn" data-rm aria-label="Убрать">✕</button></div>`;
+    const sample = [['Привод + 2 магазина + шары', 800], ['Маска / защитные очки', 200], ['Бронежилет + разгрузка', 300], ['Камуфляж (куртка + штаны)', 300], ['Рация', 150]];
+    openDialog({
+      title: 'Прокат: комплекты и цены',
+      body: `<div class="note">Комплекты видны в окне «Записаться»: игрок отмечает, что возьмёт, видит сумму, и список уходит в заявку ВКонтакте. Пустой список — в записи останется простой вопрос «Нужен прокат?».</div>
+        <div class="erows" id="rnRows">${R.items.map(row).join('')}</div>
+        <div class="admin-actions wrap"><button type="button" class="btn ghost" id="rnAdd">+ Комплект</button>${R.items.length ? '' : '<button type="button" class="btn ghost" id="rnSample">Заполнить примером</button>'}</div>`,
+      onOpen: f => {
+        const box = f.querySelector('#rnRows');
+        const add = (n = '', p = null) => { box.insertAdjacentHTML('beforeend', row({ id: Store.uid(), name: n, price: p, note: '' })); enableDrag(box, () => {}); };
+        f.querySelector('#rnAdd').onclick = () => { add(); box.lastElementChild.querySelector('.rn-n').focus(); };
+        const smp = f.querySelector('#rnSample'); if (smp) smp.onclick = () => { sample.forEach(([n, p]) => add(n, p)); smp.remove(); };
+        f.addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) b.closest('.rn-r').remove(); });
+        enableDrag(box, () => {});
+      },
+      onSubmit: async (fd, f) => {
+        D().settings.rental = { items: [...f.querySelectorAll('#rnRows .rn-r')].map(r => ({ id: r.dataset.id, name: r.querySelector('.rn-n').value.trim(),
+          price: r.querySelector('.rn-p').value === '' ? null : +r.querySelector('.rn-p').value, note: r.querySelector('.rn-d').value.trim() })).filter(i => i.name) };
+        await commit('Прокат сохранён');
+      }
+    });
+  }
+  /** Блок проката в окне записи: галочки, количество, итог. */
+  function rentalPicker() {
+    const items = D().settings.rental.items;
+    return `<div class="fld"><span>Прокат снаряжения</span><div class="rent" id="rentBox">${items.map(i => `<label class="rent__i"><input type="checkbox" class="rent-c" value="${esc(i.id)}"><span class="rent__n">${esc(i.name)}${i.note ? `<small>${esc(i.note)}</small>` : ''}</span>
+        <b>${i.price != null ? rub(i.price) : 'цена по запросу'}</b><input type="number" class="rent-q" min="1" max="50" value="1" aria-label="Количество: ${esc(i.name)}"></label>`).join('')}
+      <div class="rent__tot"><span>Итого прокат</span><b id="rentTot">0 ₽</b></div></div><small>Не нужно — ничего не отмечайте. Список уйдёт в заявку, организаторы заранее подготовят комплекты.</small></div>`;
+  }
+  function rentalRead(f) {
+    const items = D().settings.rental.items, out = []; let sum = 0;
+    f.querySelectorAll('#rentBox .rent__i').forEach(l => {
+      const c = l.querySelector('.rent-c'); if (!c.checked) return;
+      const i = items.find(x => x.id === c.value), q = Math.max(1, Math.min(50, Math.round(+l.querySelector('.rent-q').value) || 1));
+      if (!i) return; out.push({ i, q }); if (i.price != null) sum += i.price * q;
+    });
+    return { out, sum };
+  }
+
+  /* --- маршрут: координаты объекта — по привязке подложки к местности --- */
+  function placeGeo(p) {
+    if (!relief || !relief.bounds) return null;
+    const b = relief.bounds; return [b.nw[0] + (b.se[0] - b.nw[0]) * p.y, b.nw[1] + (b.se[1] - b.nw[1]) * p.x];
+  }
+  const yaRoute = ll => `https://yandex.ru/maps/?rtext=~${ll[0].toFixed(6)}%2C${ll[1].toFixed(6)}&rtt=auto`;
+  const gRoute = ll => `https://www.google.com/maps/dir/?api=1&destination=${ll[0].toFixed(6)},${ll[1].toFixed(6)}`;
+  /** Куда вести гостей: объект «Вход», иначе «Парковка», иначе центр полигона. */
+  function arrivalGeo() { const p = places().find(x => x.type === 'entry') || places().find(x => x.type === 'parking'); return p ? placeGeo(p) : geoCenter(); }
+  function routeHtml(p) {
+    const ll = placeGeo(p); if (!ll) return '';
+    const s = `${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}`, full = p.type === 'entry' || p.type === 'parking';
+    return `<div class="route ${full ? '' : 'route--sm'}">${full ? `<a class="btn primary" href="${esc(yaRoute(ll))}" target="_blank" rel="noopener">🧭 Маршрут в Яндекс.Картах</a><a class="btn" href="${esc(gRoute(ll))}" target="_blank" rel="noopener">Google Maps</a>` : `<a class="btn ghost" href="${esc(yaRoute(ll))}" target="_blank" rel="noopener">🧭 Маршрут сюда</a>`}
+      <button type="button" class="btn ghost" data-copy="${esc(s)}">Скопировать координаты</button></div>`;
+  }
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано: ' + b.dataset.copy); } catch (x) { toast(b.dataset.copy); }
+  });
+
+  /* --- «Первый раз?» — вопросы новичков --- */
+  const FAQ_SAMPLE = [
+    ['Первый раз?', 'Ничего своего не нужно — всё дадим в прокат. Приезжайте пораньше к инструктажу.'],
+    ['Сколько стоит?', 'Взнос за игру и цены проката — в разделе «Прокат» и в окне записи.'],
+    ['Что надеть?', 'Закрытая одежда по погоде, крепкая обувь, перчатки. Очки или маска — обязательно.'],
+    ['С какого возраста?', 'Уточните у организаторов: обычно с 14 лет с согласием родителей.'],
+    ['Свой привод?', 'Можно, после проверки скорости (хрона) на входе. Лимиты — в правилах.'],
+    ['Где поесть?', 'Еду и воду лучше взять с собой.']];
+  function faqHtml() {
+    const l = D().faq || [], admin = store.canWrite();
+    if (!l.length && !admin) return '';
+    return `<div class="faq" id="faq"><div class="faq__h"><h3>Первый раз на полигоне?</h3>${admin ? '<button class="btn ghost" id="faqEdit">Изменить вопросы</button>' : ''}</div>
+      ${l.length ? `<div class="faq__g">${l.map(f => `<div class="faq__c"><b>${esc(f.q)}</b><p>${linkify(f.a)}</p></div>`).join('')}</div>` : '<p class="hint">Вопросов пока нет. Нажмите «Изменить вопросы» — можно начать с примера.</p>'}</div>`;
+  }
+  function openFaqForm() {
+    const row = f => `<div class="irow fq" data-drag="${esc(f.id)}" data-id="${esc(f.id)}" draggable="true"><div class="irow__h"><span class="grip" title="Перетащите">⋮⋮</span><input class="fq-q" value="${esc(f.q)}" maxlength="80" placeholder="Вопрос, например «Что надеть?»" aria-label="Вопрос"><button type="button" class="iconbtn" data-rm aria-label="Удалить">✕</button></div>
+      <textarea class="fq-a" rows="2" maxlength="400" placeholder="Короткий ответ" aria-label="Ответ">${esc(f.a)}</textarea></div>`;
+    openDialog({
+      title: '«Первый раз на полигоне?»',
+      body: `<div class="note">Короткие ответы для новичков — карточками над разделами «Для игроков». Лучше 3–6 штук, по паре предложений.</div>
+        <div class="irows" id="fqRows">${(D().faq || []).map(row).join('')}</div>
+        <div class="admin-actions wrap"><button type="button" class="btn ghost" id="fqAdd">+ Вопрос</button>${(D().faq || []).length ? '' : '<button type="button" class="btn ghost" id="fqSample">Заполнить примером</button>'}</div>`,
+      onOpen: f => {
+        const box = f.querySelector('#fqRows');
+        const add = (q = '', a = '') => { box.insertAdjacentHTML('beforeend', row({ id: Store.uid(), q, a })); enableDrag(box, () => {}); };
+        f.querySelector('#fqAdd').onclick = () => { add(); box.lastElementChild.querySelector('.fq-q').focus(); };
+        const smp = f.querySelector('#fqSample'); if (smp) smp.onclick = () => { FAQ_SAMPLE.forEach(([q, a]) => add(q, a)); smp.remove(); };
+        f.addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) b.closest('.fq').remove(); });
+        enableDrag(box, () => {});
+      },
+      onSubmit: async (fd, f) => {
+        D().faq = [...f.querySelectorAll('#fqRows .fq')].map(r => ({ id: r.dataset.id, q: r.querySelector('.fq-q').value.trim(), a: r.querySelector('.fq-a').value.trim() })).filter(x => x.q || x.a);
+        await commit('Вопросы сохранены');
+      }
+    });
+  }
+
+  /* ================================================================
+     «ПРОИГРАТЬ КАМПАНИЮ»: игры сценария по очереди — до и после, точки перекрашиваются
+     ================================================================ */
+  const playList = scId => scGames(scId).filter(g => !isMedia(g) && g.points.length);
+  function startPlay(from = 0) {
+    const l = playList(S.scId); if (!l.length) return;
+    stopPlay(true);
+    S.play = { ids: l.map(g => g.id), i: Math.min(from, l.length - 1), ph: 'before', paused: false, done: false, timer: 0 };
+    if (S.mode) stopMode();
+    playStep(); if (isMobile()) $('#app').scrollIntoView({ behavior: 'smooth' });
+  }
+  function playStep() {
+    const P = S.play; if (!P) return;
+    S.gameId = P.ids[P.i]; S.phase = P.ph; S.pointId = S.placeId = null;
+    refresh(); renderPlayer();
+    clearTimeout(P.timer);
+    if (!P.paused && !P.done) P.timer = setTimeout(playNext, P.ph === 'before' ? 1500 : 2300);
+  }
+  function playNext() {
+    const P = S.play; if (!P) return;
+    if (P.ph === 'before') P.ph = 'after';
+    else if (P.i < P.ids.length - 1) { P.i++; P.ph = 'before'; }
+    else { P.done = true; }
+    playStep();
+  }
+  function stopPlay(silent) { const P = S.play; if (!P) return; clearTimeout(P.timer); S.play = null; if (!silent) { renderPlayer(); renderTourOverlay(); } }
+  function renderPlayer() {
+    const el = $('#playBar'), P = S.play;
+    if (!P) { el.hidden = true; el.innerHTML = ''; return; }
+    const games = P.ids.map(id => D().games.find(g => g.id === id)).filter(Boolean), g = games[P.i];
+    if (!g) { stopPlay(); return; }
+    el.hidden = false;
+    el.innerHTML = `<button type="button" class="pb-b pb-main" data-pb="${P.done ? 'again' : P.paused ? 'go' : 'pause'}" aria-label="${P.done ? 'Сначала' : P.paused ? 'Продолжить' : 'Пауза'}">${P.done ? '⟲' : P.paused ? '▶' : '❚❚'}</button>
+      <div class="pb-tl">${games.map((x, i) => `${i ? `<s class="${i <= P.i ? 'on' : ''}"></s>` : ''}<button type="button" class="pb-d ${i < P.i || (i === P.i && P.ph === 'after') ? 'on' : ''} ${i === P.i ? 'cur' : ''}" data-pb="jump" data-i="${i}" title="${esc(fmtDate(x.date))} — ${esc(x.title)}"></button>`).join('')}</div>
+      <span class="pb-t">${P.done ? 'Кампания проиграна · ' : ''}Игра ${P.i + 1} из ${games.length} · «${esc(g.title)}» · ${esc(fmtDate(g.date))} · <b>${P.ph === 'before' ? 'до игры' : 'после игры'}</b></span>
+      <button type="button" class="pb-b" data-pb="close" aria-label="Закрыть плеер">✕</button>`;
+  }
+  $('#playBar').addEventListener('click', e => {
+    const b = e.target.closest('[data-pb]'); if (!b || !S.play) return; const P = S.play;
+    if (b.dataset.pb === 'pause') { P.paused = true; clearTimeout(P.timer); renderPlayer(); }
+    else if (b.dataset.pb === 'go') { P.paused = false; playNext(); }
+    else if (b.dataset.pb === 'again') startPlay(0);
+    else if (b.dataset.pb === 'jump') { P.i = +b.dataset.i; P.ph = 'after'; P.done = P.i === P.ids.length - 1; P.paused = true; playStep(); }
+    else if (b.dataset.pb === 'close') stopPlay();
+  });
+
+  /* ================================================================
+     БРИФИНГ: картинка карты игры (PNG) — подложка, граница, сетка, зоны, стрелки, точки, легенда
+     ================================================================ */
+  const svgImgCache = new Map();
+  function svgImg(svg, color, size) {
+    const key = svg + color + size; if (svgImgCache.has(key)) return svgImgCache.get(key);
+    const src = svg.replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" `).replace(/currentColor/g, color);
+    const p = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src); });
+    svgImgCache.set(key, p); return p;
+  }
+  const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+  async function makeBrief() {
+    const g = curGame(); if (isMedia(g)) return;
+    const btn = $('#btnBrief'); btn.disabled = true; toast('Готовлю карту…');
+    try {
+      const d = D(), pts = g ? g.points : [];
+      // область: по границе полигона (и точкам игры), иначе весь снимок
+      let fr = d.border.length >= 3 ? d.border.concat(pts.map(p => [p.x, p.y])) : null, x0 = 0, y0 = 0, x1 = 1, y1 = 1;
+      if (fr) { const xs = fr.map(p => p[0]), ys = fr.map(p => p[1]); x0 = Math.max(0, Math.min(...xs) - .03); x1 = Math.min(1, Math.max(...xs) + .03); y0 = Math.max(0, Math.min(...ys) - .03); y1 = Math.min(1, Math.max(...ys) + .03); }
+      const OUT = 2400, NZ = idx.nativeZoom ?? Z, T = idx.tileSize;
+      let L = NZ; for (let z = 0; z <= NZ; z++) { if ((x1 - x0) * W / Math.pow(2, Z - z) >= OUT * .9 && idx.levels[z]) { L = z; break; } }
+      const s = 1 / Math.pow(2, Z - L), k = OUT / ((x1 - x0) * W * s);
+      const mw = OUT, mh = Math.round((y1 - y0) * H * s * k), HEAD = 150, FOOT = 110, PAD = 0;
+      const cv = document.createElement('canvas'); cv.width = mw + PAD * 2; cv.height = mh + HEAD + FOOT;
+      const c = cv.getContext('2d'), oy = HEAD;
+      const P = (x, y) => [PAD + (x - x0) * W * s * k, oy + (y - y0) * H * s * k];
+      c.fillStyle = '#0e120c'; c.fillRect(0, 0, cv.width, cv.height);
+      // подложка из тайлов
+      const lv = idx.levels[L], tUrl = (z, x, y) => C.tilesUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y), jobs = [];
+      for (let ty = Math.floor(y0 * H * s / T); ty <= Math.min(lv.rows - 1, Math.floor(y1 * H * s / T)); ty++)
+        for (let tx = Math.floor(x0 * W * s / T); tx <= Math.min(lv.cols - 1, Math.floor(x1 * W * s / T)); tx++)
+          if (lv.mask[ty * lv.cols + tx] === '1') jobs.push(loadImg(tUrl(L, tx, ty)).then(im => { if (im) c.drawImage(im, PAD + (tx * T - x0 * W * s) * k, oy + (ty * T - y0 * H * s) * k, T * k + .5, T * k + .5); }));
+      await Promise.all(jobs);
+      c.save(); c.beginPath(); c.rect(PAD, oy, mw, mh); c.clip();
+      // затемнение за границей и граница
+      if (d.border.length >= 3) {
+        const st = d.settings.border; c.beginPath(); c.rect(PAD, oy, mw, mh); d.border.forEach((p, i) => { const [X, Y] = P(...p); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath();
+        c.fillStyle = 'rgba(5,7,4,.55)'; c.fill('evenodd');
+        c.beginPath(); d.border.forEach((p, i) => { const [X, Y] = P(...p); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath();
+        c.lineJoin = 'round'; c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = st.width * 2 + 6; c.stroke(); c.strokeStyle = st.color; c.lineWidth = st.width * 2; c.stroke();
+      }
+      // сетка квадратов
+      const G = gridGeo(), gp = (i, j) => { const [px, py] = gCorner(G, i, j); return P(px / W, py / H); };
+      c.strokeStyle = 'rgba(233,240,200,.35)'; c.lineWidth = 1.5;
+      for (let i = 0; i <= G.cols; i++) { c.beginPath(); c.moveTo(...gp(i, 0)); c.lineTo(...gp(i, G.rows)); c.stroke(); }
+      for (let j = 0; j <= G.rows; j++) { c.beginPath(); c.moveTo(...gp(0, j)); c.lineTo(...gp(G.cols, j)); c.stroke(); }
+      c.font = '600 22px "IBM Plex Mono", monospace'; c.fillStyle = 'rgba(233,240,200,.75)'; c.textBaseline = 'top';
+      for (let i = 0; i < G.cols; i++) for (let j = 0; j < G.rows; j++) { const [X, Y] = gp(i, j); c.fillText(COLS[i] + (j + 1), X + 6, Y + 5); }
+      // зоны, стрелки
+      pts.forEach(p => { if (p.area.length < 3) return; const col = sideColor(owner(p)); c.beginPath(); p.area.forEach((v, i) => { const [X, Y] = P(...v); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath();
+        c.globalAlpha = .25; c.fillStyle = col; c.fill(); c.globalAlpha = .95; c.strokeStyle = col; c.lineWidth = 3; c.stroke(); c.globalAlpha = 1; });
+      (g ? g.arrows : []).forEach(a => { const q = a.pts.map(v => P(...v)); if (q.length < 2) return; const col = paintColor(a.color), w = a.width * 2.2;
+        const [ax, ay] = q[q.length - 2], [bx, by] = q[q.length - 1], ang = Math.atan2(by - ay, bx - ax), hl = Math.max(26, w * 3.4);
+        c.globalAlpha = a.opacity; c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = w; c.beginPath(); q.forEach(([X, Y], i) => { if (i === q.length - 1) { X -= hl * .8 * Math.cos(ang); Y -= hl * .8 * Math.sin(ang); } i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.stroke();
+        c.fillStyle = col; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx - hl * Math.cos(ang - .45), by - hl * Math.sin(ang - .45)); c.lineTo(bx - hl * Math.cos(ang + .45), by - hl * Math.sin(ang + .45)); c.closePath(); c.fill(); c.globalAlpha = 1; });
+      // подписи полигона
+      d.labels.forEach(l => { const [X, Y] = P(l.x, l.y); c.globalAlpha = l.opacity; c.fillStyle = paintColor(l.color); c.font = `600 ${Math.round(l.size * 1.6)}px Oswald, "Arial Narrow", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(l.text.toUpperCase(), X, Y); c.globalAlpha = 1; });
+      c.textAlign = 'left';
+      const tag = (X, Y, text, col) => { c.font = '600 20px "IBM Plex Sans", Arial, sans-serif'; const w = c.measureText(text).width + 14; c.fillStyle = 'rgba(15,19,12,.88)'; c.fillRect(X - w / 2, Y, w, 28); c.strokeStyle = col; c.lineWidth = 1.5; c.strokeRect(X - w / 2, Y, w, 28); c.fillStyle = '#eef2e2'; c.textBaseline = 'middle'; c.fillText(text, X - w / 2 + 7, Y + 14); };
+      // объекты полигона
+      for (const p of (S.f.places ? d.places : [])) { const [X, Y] = P(p.x, p.y); c.fillStyle = 'rgba(27,31,24,.92)'; c.strokeStyle = '#a9ad9c'; c.lineWidth = 2; c.beginPath(); c.roundRect(X - 17, Y - 17, 34, 34, 7); c.fill(); c.stroke();
+        const im = await svgImg(iconOf(p, 'building'), '#d7dacb', 22); if (im) c.drawImage(im, X - 11, Y - 11); tag(X, Y + 22, p.name, '#a9ad9c'); }
+      // точки игры
+      for (const p of pts) { const col = sideColor(owner(p)), [X, Y] = P(p.x, p.y);
+        c.beginPath(); c.arc(X, Y, 24, 0, Math.PI * 2); c.fillStyle = 'rgba(14,18,12,.92)'; c.fill(); c.lineWidth = 5; c.strokeStyle = col; c.stroke();
+        const im = await svgImg(iconOf(p), col, 28); if (im) c.drawImage(im, X - 14, Y - 14);
+        if (changed(p) && S.phase === 'after') { c.beginPath(); c.arc(X + 19, Y - 19, 10, 0, Math.PI * 2); c.fillStyle = sideColor(p.after); c.fill(); c.lineWidth = 2; c.strokeStyle = '#000'; c.stroke(); }
+        tag(X, Y + 30, p.name, col); }
+      c.restore();
+      // шапка
+      c.fillStyle = '#151b12'; c.fillRect(0, 0, cv.width, HEAD); c.fillStyle = '#e2a23b'; c.fillRect(0, HEAD - 4, cv.width, 4);
+      c.textBaseline = 'alphabetic'; c.fillStyle = '#e2a23b'; c.font = '500 26px Oswald, "Arial Narrow", sans-serif';
+      const sc = curScenario();
+      c.fillText((siteTitle() + (sc ? ' · ' + sc.title : '')).toUpperCase(), 36, 48);
+      c.fillStyle = '#eef2e2'; c.font = '500 52px Oswald, "Arial Narrow", sans-serif';
+      c.fillText((g ? g.title : 'Карта полигона').toUpperCase(), 36, 106);
+      c.font = '500 26px "IBM Plex Mono", monospace'; c.textAlign = 'right'; c.fillStyle = '#98a387';
+      if (g) { c.fillText(fmtDate(g.date) + (g.time ? ' · ' + g.time : ''), cv.width - 36, 52); c.fillStyle = '#e2a23b'; c.fillText(S.phase === 'before' ? 'ПОЛОЖЕНИЕ ДО ИГРЫ' : 'ПОЛОЖЕНИЕ ПОСЛЕ ИГРЫ', cv.width - 36, 104); }
+      c.textAlign = 'left';
+      // легенда и масштаб
+      const fy = oy + mh; c.fillStyle = '#151b12'; c.fillRect(0, fy, cv.width, FOOT);
+      let lx = 36; c.font = '500 24px "IBM Plex Sans", Arial, sans-serif'; c.textBaseline = 'middle';
+      const cnt = id => pts.filter(p => (owner(p) || '') === id).length;
+      d.sides.concat([{ id: '', name: 'Ничья', color: NOBODY }]).forEach(sd => { const n = cnt(sd.id); if (!n && sd.id === '') return;
+        c.beginPath(); c.arc(lx + 11, fy + 40, 11, 0, Math.PI * 2); c.fillStyle = sd.color; c.fill();
+        c.fillStyle = '#eef2e2'; const t = `${sd.name}${g ? ': ' + n : ''}`; c.fillText(t, lx + 30, fy + 41); lx += c.measureText(t).width + 70; });
+      const mppOut = mpp() / (s * k), nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000].find(m => m / mppOut > 160) || 1000, bw = nice / mppOut, bx = cv.width - 60 - bw;
+      c.fillStyle = '#eef2e2'; c.fillRect(bx, fy + 36, bw, 8); c.fillStyle = '#e2a23b'; c.fillRect(bx, fy + 36, bw / 2, 8);
+      c.font = '500 22px "IBM Plex Mono", monospace'; c.textAlign = 'center'; c.fillStyle = '#eef2e2'; c.fillText(`${nice} м`, bx + bw / 2, fy + 70);
+      c.fillText('С ↑', bx - 70, fy + 40); c.textAlign = 'left';
+      c.font = '400 19px "IBM Plex Sans", Arial, sans-serif'; c.fillStyle = '#6b7660';
+      const cl = G.cw * mpp(); c.fillText(`Сетка: квадрат ≈ ${Math.round(cl)} м, по улитке 1–9 · ${location.host || ''}`, 36, fy + 84);
+      const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      const slug = (g ? g.title : 'poligon').toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40);
+      a.download = `karta-${g ? g.date + '-' : ''}${slug}.png`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      toast('Карта скачана — её можно отправить в беседу или распечатать');
+    } catch (e) { console.error(e); toast('Не удалось собрать картинку: ' + e.message, 'err'); }
+    finally { btn.disabled = false; }
+  }
+  $('#btnBrief').onclick = makeBrief;
+
   /* ---------- выбор ---------- */
   function syncHash() {
     const q = new URLSearchParams();
@@ -1379,12 +1799,14 @@
   }
   function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderMediaView(); renderTourOverlay(); renderPanel(); syncHash(); updateAdminUi(); }
   function selectScenario(id, gameId) {
+    stopPlay();
     S.scId = id || ''; S.pointId = null; S.placeId = null;
     const g = gameId ? D().games.find(x => x.id === gameId) : defaultGame(S.scId);
     S.gameId = g ? g.id : null; S.phase = g && isFuture(g) ? 'before' : 'after'; S.tab = 'game';
     refresh();
   }
   function selectGame(id) {
+    stopPlay();
     const g = D().games.find(x => x.id === id);
     S.gameId = id; S.pointId = null; S.placeId = null; S.phase = g && isFuture(g) ? 'before' : 'after'; refresh();
   }
@@ -1421,7 +1843,7 @@
     f.innerHTML = `<header class="dlg__head"><h2>${esc(title)}</h2><button type="button" class="iconbtn" data-close aria-label="Закрыть">✕</button></header>
       <div class="dlg__body">${body}</div>
       <footer class="dlg__foot">${onDelete ? `<button type="button" class="btn danger" data-del>${esc(deleteText || 'Удалить')}</button>` : ''}<span class="sp"></span>
-      <button type="button" class="btn ghost" data-close>Отмена</button>${onSubmit ? `<button type="submit" class="btn primary">${esc(submit)}</button>` : ''}</footer>`;
+      <button type="button" class="btn ghost" data-close>${onSubmit ? 'Отмена' : 'Закрыть'}</button>${onSubmit ? `<button type="submit" class="btn primary">${esc(submit)}</button>` : ''}</footer>`;
     f.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $('#dlg').close());
     f.onsubmit = async e => {
       e.preventDefault();
@@ -1523,7 +1945,8 @@
         '</div>' +
         `<div class="fld"><span>Стороны и команды на этой игре</span><div class="srows">${sidesRows}</div><small>${d.teams.length ? 'На стороне может быть сколько угодно команд. Число игроков команды считается по галочкам состава, а если состава нет — впишите его. «Всего на стороне» можно оставить пустым — сложится само.' : 'Справочник команд пуст — добавьте команды в «⚙ Настройки → Стороны и команды».'}</small></div>` +
         fld('Сбор (время, место)', `<textarea name="gather" rows="2">${esc(g.gather)}</textarea>`) +
-        fld('Итог', `<textarea name="result" rows="3">${esc(g.result)}</textarea>`) +
+        `<div class="row2">${fld('Итог игры', `<select name="winner"><option value="" ${!g.winner ? 'selected' : ''}>Авто — у кого больше точек после игры</option>${d.sides.map(s => `<option value="${esc(s.id)}" ${g.winner === s.id ? 'selected' : ''}>Победила: ${esc(s.name)}</option>`).join('')}<option value="draw" ${g.winner === 'draw' ? 'selected' : ''}>Ничья</option></select>`, 'Для рейтинга команд и карточек')}<span></span></div>` +
+        fld('Итог (текст)', `<textarea name="result" rows="3">${esc(g.result)}</textarea>`) +
         fld('Фото игры', `<textarea name="photos" rows="2" placeholder="https://drive.google.com/file/d/…/view | подпись">${esc(photosToText(g.photos))}</textarea>`, PHOTO_HINT) +
         '' + (isNew && lastMap ? `<label class="check" data-mapopt ${mediaOn ? 'hidden' : ''}><input type="checkbox" name="copy" checked> Продолжить с итогов игры «${esc(lastMap.title)}» (${esc(fmtDate(lastMap.date))}): перенести точки, их зоны и владельцев</label>` : ''),
       onOpen: f => {
@@ -1588,7 +2011,7 @@
         });
         const data = Object.assign({}, g, {
           scenarioId: fd.get('scenarioId'), title: fd.get('title').trim(), date: fd.get('date'), time: (fd.get('time') || '').trim(), featured: !!fd.get('featured'),
-          summary: fd.get('summary').trim(), gather: fd.get('gather').trim(), result: fd.get('result').trim(), photos, sides,
+          summary: fd.get('summary').trim(), gather: fd.get('gather').trim(), result: fd.get('result').trim(), photos, sides, winner: fd.get('winner') || '',
           view: fd.get('view') === 'media' ? 'media' : 'map',
           media: { url: (fd.get('mediaData') || fd.get('mediaUrl') || '').trim(), caption: (fd.get('mediaCaption') || '').trim(), link: (fd.get('mediaLink') || '').trim(), linkLabel: (fd.get('mediaLinkLabel') || '').trim() }
         });
@@ -1970,14 +2393,23 @@
       body: `<div class="note"><b>${esc(g.title)}</b>${sc ? ` · ${esc(sc.title)}` : ''} · ${esc(fmtDate(g.date))}<br>После нажатия «Записаться» откроется ВКонтакте. Текст заявки будет скопирован — вставьте его в сообщение и отправьте.</div>` +
         `<div class="row2">${fld('Ваше имя или позывной', '<input name="name" required maxlength="60" autocomplete="name">')}${fld('Сколько человек', '<input type="number" name="count" min="1" max="50" value="1" required inputmode="numeric">')}</div>` +
         `<div class="row2">${fld('Дата игры', `<input type="date" name="date" required value="${esc(g.date)}">`)}${teams.length ? fld('Команда / сторона', `<select name="team"><option value="">Без разницы</option>${teams.map(t => `<option>${esc(t)}</option>`).join('')}</select>`) : '<span></span>'}</div>` +
-        fld('Нужен прокат?', '<select name="rent"><option value="">Нет, своё снаряжение</option><option>Да, нужен прокат</option><option>Частично, уточню</option></select>') +
+        (D().settings.rental.items.length ? rentalPicker() : fld('Нужен прокат?', '<select name="rent"><option value="">Нет, своё снаряжение</option><option>Да, нужен прокат</option><option>Частично, уточню</option></select>')) +
         fld('Комментарий', '<textarea name="comment" rows="3" maxlength="500" placeholder="Опыт игры, вопросы организаторам…"></textarea>') +
         `<div class="fld" id="msgBox" hidden><span>Текст заявки</span><textarea id="msgText" rows="6" readonly></textarea><small>Если ВКонтакте не открылся или текст не вставился — скопируйте его отсюда. Ссылка: <a href="${esc(vk)}" target="_blank" rel="noopener">${esc(vk.replace('https://', ''))}</a></small></div>`,
+      onOpen: f => {
+        const box = f.querySelector('#rentBox'); if (!box) return;
+        const upd = () => { const { out, sum } = rentalRead(f); f.querySelector('#rentTot').textContent = rub(sum);
+          box.querySelectorAll('.rent__i').forEach(l => l.classList.toggle('on', l.querySelector('.rent-c').checked)); box.classList.toggle('has', out.length > 0); };
+        box.addEventListener('input', e => { if (e.target.classList.contains('rent-q')) { const c = e.target.closest('.rent__i').querySelector('.rent-c'); if (!c.checked) c.checked = true; } upd(); });
+        box.addEventListener('change', upd); upd();
+      },
       onSubmit: async (fd, f) => {
         const clean = v => String(v || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
         const lines = [`Заявка на игру «${g.title}»${sc ? ` (${sc.title})` : ''}`, `Дата: ${fmtDate(fd.get('date'))}`, `Имя: ${clean(fd.get('name'))}`, `Человек: ${Math.max(1, +fd.get('count') || 1)}`];
         if (fd.get('team')) lines.push(`Сторона: ${clean(fd.get('team'))}`);
         if (fd.get('rent')) lines.push(`Прокат: ${clean(fd.get('rent'))}`);
+        if (f.querySelector('#rentBox')) { const { out, sum } = rentalRead(f);
+          lines.push(out.length ? 'Прокат:\n' + out.map(({ i, q }) => `— ${i.name}${q > 1 ? ' ×' + q : ''}${i.price != null ? ' — ' + rub(i.price * q) : ''}`).join('\n') + (sum ? `\nИтого прокат: ${rub(sum)}` : '') : 'Прокат: не нужен'); }
         if (clean(fd.get('comment'))) lines.push(`Комментарий: ${String(fd.get('comment')).trim().slice(0, 500)}`);
         const text = lines.join('\n');
         const box = f.querySelector('#msgBox'), ta = f.querySelector('#msgText'); box.hidden = false; ta.value = text;
@@ -2218,6 +2650,7 @@
   $('#admPass').onclick = () => { closeMenu(); openPassForm(); };
   mi('#admExport', exportJson);
   mi('#admCheck', () => showIssues(false));
+  mi('#admRental', openRentalForm); mi('#admFaq', openFaqForm); mi('#admFooter', openFooterForm);
   $('#draftDownload').onclick = exportJson;
   mi('#admImport', () => $('#importFile').click());
   $('#importFile').onchange = async e => {

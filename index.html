@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="css/style.css?v=20261019c">
+<link rel="stylesheet" href="css/style.css?v=20261020a">
 </head>
 <body>
 
@@ -48,11 +48,13 @@
 </section>
 
 <!-- СЦЕНАРИИ: «Полигон» закреплён слева, дальше игры по сценариям -->
-<section class="hero" id="scenarios" aria-label="Сценарии">
+<section class="hero" id="calendar" aria-label="Календарь сезона">
   <div class="hero__in">
-    <div class="sc-head"><h2>Сценарии</h2><span class="sc-hint">Выберите сценарий — ниже откроется его карта, правила и история игр</span></div>
+    <div class="sc-head"><h2>Календарь сезона</h2><span class="sc-hint" id="calHint"></span></div>
+    <div class="cal" id="calLine"></div>
     <div id="nextGame"></div>
-    <div class="sc-list" id="scList"></div>
+    <div class="sc-head sc-head--2" id="scenarios"><h2>Сценарии</h2><span class="sc-hint">Выберите сценарий — ниже откроется его карта, правила и история игр</span></div>
+    <div class="sc-grid" id="scList"></div>
   </div>
 </section>
 
@@ -65,6 +67,7 @@
     <div id="map" aria-label="Карта полигона"></div>
     <div class="mediaview" id="mediaView" hidden></div>
     <div class="tov" id="tourOv" hidden aria-label="Турнир"></div>
+    <div class="playbar" id="playBar" hidden aria-label="Проигрывание кампании"></div>
 
     <div class="ctrl-col">
       <button class="ctrl" id="btnZoomIn" title="Приблизить" aria-label="Приблизить">+</button>
@@ -72,6 +75,9 @@
       <span class="ctrl-gap"></span>
       <button class="ctrl" id="btnFit" title="Весь полигон" aria-label="Показать весь полигон">
         <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button class="ctrl" id="btnBrief" title="Скачать карту игры (брифинг)" aria-label="Скачать карту игры картинкой">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16" fill="none" stroke="currentColor" stroke-width="2"/></svg>
       </button>
       <button class="ctrl" id="btnFilters" title="Слои карты" aria-label="Слои карты" aria-expanded="true">
         <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -112,6 +118,9 @@
       <div class="adminbar__menu" id="admMenu" hidden>
         <button id="admEditScenario">Изменить сценарий…</button>
         <button id="admEditGame">Изменить игру…</button>
+        <button id="admRental">Прокат: комплекты и цены…</button>
+        <button id="admFaq">«Первый раз?» — вопросы…</button>
+        <button id="admFooter">Подвал сайта…</button>
         <button id="admCheck">Проверка перед публикацией</button>
         <button id="admExport">Скачать games.json</button>
         <button id="admImport">Загрузить games.json…</button>
@@ -154,6 +163,9 @@
 </div>
 
 <!-- ИНФОРМАЦИЯ ДЛЯ ИГРОКОВ -->
+<!-- РЕЙТИНГ КОМАНД ЗА СЕЗОН -->
+<section class="rating" id="rating" hidden aria-label="Рейтинг команд"></section>
+
 <section class="info" id="infoBlock" aria-labelledby="infoTitle"></section>
 
 <!-- ПОДВАЛ: о полигоне, полезные ссылки, соцсети -->
@@ -172,8 +184,8 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="js/config.js?v=20261019c"></script>
-<script src="js/store.js?v=20261019c"></script>
-<script src="js/app.js?v=20261019c"></script>
+<script src="js/config.js?v=20261020a"></script>
+<script src="js/store.js?v=20261020a"></script>
+<script src="js/app.js?v=20261020a"></script>
 </body>
 </html>
