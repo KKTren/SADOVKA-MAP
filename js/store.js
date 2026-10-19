@@ -18,7 +18,9 @@
                    points:[{ id, name, type, icon, x, y,
                              before, after,          // id стороны-владельца до и после игры ('' — ничья)
                              area:[[x,y],…], note, photos }],
-                   arrows:[{ id, pts:[[x,y],…], color, opacity, width }] }]  // стрелки направлений этой игры
+                   arrows:[{ id, pts:[[x,y],…], color, opacity, width }],  // стрелки направлений этой игры
+                   view: 'map' | 'media',              // 'media' — игра без карты
+                   media:{ url, caption, link, linkLabel } }]  // гифка/картинка вместо карты и кнопка-ссылка под ней
    }
    x,y — доли ширины и высоты подложки (0…1).
    ================================================================ */
@@ -65,6 +67,17 @@
         photos: arr(g && g.photos).filter(p => p && p.url).map(p => ({ url: str(p.url, 500), caption: str(p.caption, 120) }))
       }))
     };
+  }
+  /** Гифка/картинка вместо карты: ссылка, файл из папки сайта (img/…) или загруженный файл (data:image/…, до ~1 МБ). */
+  const MEDIA_MAX = 1400000;
+  function normMedia(m) {
+    m = m && typeof m === 'object' ? m : {};
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    const u = String(m.url || '').trim();
+    const url = /^data:image\/(gif|png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(u) && u.length <= MEDIA_MAX ? u
+      : /^(https?:\/\/|img\/)[^\s"'<>]{1,1000}$/i.test(u) ? u : '';
+    const link = str(m.link, 500);
+    return { url, caption: str(m.caption, 200), link: /^https?:\/\//i.test(link) ? link : '', linkLabel: str(m.linkLabel, 60) };
   }
   function normalizeDoc(d, cfg) {
     d = d || {};
@@ -127,6 +140,8 @@
         id: g.id || uid(), scenarioId: sc, title: g.title || 'Игра', date: g.date || new Date().toISOString().slice(0, 10),
         time: /^\d{1,2}:\d{2}$/.test(g.time || '') ? g.time : '', featured: !!g.featured, summary: g.summary || '', gather: g.gather || '', result: g.result || '',
         photos: arr(g.photos), sides: gs,
+        // 'map' — игра на карте полигона, 'media' — без карты: вместо карты гифка или картинка
+        view: g.view === 'media' ? 'media' : 'map', media: normMedia(g.media),
         arrows: arr(g.arrows).map(a => ({ id: a.id || uid(), pts: poly(a.pts), color: paint(a.color), opacity: op(a.opacity), width: Math.min(20, Math.max(1, +a.width || 4)) })).filter(a => a.pts.length >= 2),
         points: arr(g.points).map(p => {
           const after = side(p.after != null ? p.after : p.status);
@@ -279,7 +294,7 @@
   }
 
   window.Store = {
-    uid, normalizeDoc, POINT_TYPES, PLACE_TYPES,
+    uid, normalizeDoc, POINT_TYPES, PLACE_TYPES, MEDIA_MAX,
     async create(cfg) { return cfg.storage === 'supabase' && cfg.supabaseUrl && cfg.supabaseAnonKey ? SupabaseBackend(cfg) : JsonBackend(cfg); }
   };
 })();

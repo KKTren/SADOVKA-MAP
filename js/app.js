@@ -178,7 +178,10 @@
   const scGames = id => D().games.filter(g => g.scenarioId === id).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
   const curScenario = () => scById(S.scId);
   const curGame = () => D().games.find(g => g.id === S.gameId && g.scenarioId === S.scId) || null;
-  const prevGame = g => { const l = scGames(g.scenarioId); const i = l.findIndex(x => x.id === g.id); return i > 0 ? l[i - 1] : null; };
+  /** Игра без карты: вместо карты показывается гифка или картинка. */
+  const isMedia = g => !!g && g.view === 'media';
+  const prevGame = g => { const l = scGames(g.scenarioId).filter(x => !isMedia(x) || x.id === g.id); // игры без карты цепочку точек не прерывают
+    const i = l.findIndex(x => x.id === g.id); return i > 0 ? l[i - 1] : null; };
   const findByName = (g, name) => g ? g.points.find(p => norm(p.name) === norm(name)) || null : null;
   const owner = p => S.phase === 'before' ? p.before : p.after;
   const changed = p => p.before !== p.after;
@@ -237,6 +240,8 @@
   const isFolderLink = u => /drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\//.test(u);
   const safeUrl = u => !/^\s*(javascript|data|vbscript):/i.test(u);
   const photoSrc = (u, w) => { const id = driveId(u); return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${w}` : u; };
+  /** Полный файл для показа вместо карты: у Google Drive берём оригинал (миниатюра Drive — без анимации). */
+  const mediaSrc = u => { const id = driveId(u); return id ? `https://lh3.googleusercontent.com/d/${id}` : u; };
   const photoOrig = u => { const id = driveId(u); return id ? `https://drive.google.com/file/d/${id}/view` : u; };
   function parsePhotos(text) {
     const out = [], warn = [];
@@ -265,10 +270,10 @@
   const LB = { list: [], i: 0 };
   function lbShow() {
     const p = LB.list[LB.i];
-    $('#lbImg').src = photoSrc(p.url, 2000); $('#lbImg').alt = p.caption || '';
+    $('#lbImg').src = p.full ? mediaSrc(p.url) : photoSrc(p.url, 2000); $('#lbImg').alt = p.caption || '';
     $('#lbCap').textContent = p.caption || '';
     $('#lbCount').textContent = LB.list.length > 1 ? `${LB.i + 1} / ${LB.list.length}` : '';
-    $('#lbOrig').href = photoOrig(p.url);
+    $('#lbOrig').href = photoOrig(p.url); $('#lbOrig').hidden = p.url.startsWith('data:');
     $('#lbPrev').hidden = $('#lbNext').hidden = LB.list.length < 2;
   }
   function lbOpen(list, i) { LB.list = list; LB.i = i; lbShow(); $('#lightbox').hidden = false; $('#lbClose').focus(); }
@@ -466,7 +471,7 @@
   }
   function renderArrows() {
     arrowsLayer.clearLayers();
-    const g = curGame(); if (!g) return;
+    const g = curGame(); if (!g || isMedia(g)) return;
     const admin = store.canWrite();
     g.arrows.forEach(a => {
       const sh = arrowShapes(a); if (!sh) return;
@@ -521,9 +526,9 @@
       m.addTo(placesLayer); markerById.set('place:' + p.id, m);
     });
     const g = curGame();
-    $('#phase').hidden = !g || !g.points.length;
+    $('#phase').hidden = !g || !g.points.length || isMedia(g);
     syncPhaseButtons();
-    if (!g) return;
+    if (!g || isMedia(g)) return;
     g.points.forEach(p => {
       const own = owner(p);
       if (S.f['s:' + (own || 'none')] === false) return;
@@ -550,6 +555,30 @@
     tog(gridLayer, S.f.grid || !!S.gridEdit); tog(reliefLayer, relief && S.f.relief); tog(borderLayer, S.f.border); tog(areasLayer, S.f.areas);
     tog(arrowsLayer, S.f.arrows); tog(labelsLayer, S.f.mapLabels);
     $('#map').classList.toggle('hide-labels', !S.f.labels);
+  }
+
+  /* ---------- игра без карты: гифка или картинка поверх карты ---------- */
+  function renderMediaView() {
+    const g = curGame(), on = isMedia(g), box = $('#mediaView');
+    app.classList.toggle('media-mode', on);
+    box.hidden = !on;
+    if (!on) { if (box.dataset.key) { box.innerHTML = ''; box.dataset.key = ''; } return; }
+    const m = g.media || {}, admin = store.canWrite();
+    const key = [g.id, m.url.length, m.url.slice(-80), m.caption, m.link, m.linkLabel, g.title, admin].join('|');
+    if (box.dataset.key === key) return;   // не перерисовываем — иначе гифка начнётся заново
+    box.dataset.key = key;
+    box.innerHTML = `<figure class="mv">
+      <figcaption class="mv__cap"><span class="mv__k">Игра без карты</span><b>${esc(g.title)}</b>${m.caption ? `<span>${esc(m.caption)}</span>` : ''}
+        ${m.link ? `<a class="btn primary" href="${esc(m.link)}" target="_blank" rel="noopener">${esc(m.linkLabel || 'Открыть проект')} ↗</a>` : ''}</figcaption>
+      <div class="mv__stage">${m.url
+        ? `<button class="mv__img" data-mvzoom title="Открыть крупно"><img src="${esc(mediaSrc(m.url))}" alt="${esc(m.caption || g.title)}" referrerpolicy="no-referrer"></button>
+           <div class="mv__err" hidden>Не удалось загрузить картинку. Проверьте ссылку${driveId(m.url) ? ' и доступ к файлу в Google Drive («Все, у кого есть ссылка»)' : ''}.</div>`
+        : `<div class="mv__err">Гифка или картинка ещё не добавлена${admin ? ' — нажмите «Изменить игру»' : ''}.</div>`}</div>
+      </figure>`;
+    const img = box.querySelector('img');
+    if (img) img.onerror = () => { img.closest('.mv__img').hidden = true; box.querySelector('.mv__err').hidden = false; };
+    const z = box.querySelector('[data-mvzoom]');
+    if (z) z.onclick = () => lbOpen([{ url: m.url, caption: m.caption || g.title, full: true }], 0);
   }
 
   /* ---------- до / после ---------- */
@@ -774,7 +803,7 @@
         <span class="sw"><input type="checkbox" data-f="${key}" ${S.f[key] !== false ? 'checked' : ''}><b></b></span></label>`;
     const svg = s => `<span class="ic" style="color:var(--muted)">${s}</span>`;
     let h = '';
-    if (g) {
+    if (g && !isMedia(g)) {
       const cnt = id => g.points.filter(p => (owner(p) || 'none') === id).length;
       h += D().sides.map(s => row('s:' + s.id, s.name, `<span class="ic"><i style="border-color:${s.color}"></i></span>`, `<span class="cnt">${cnt(s.id)}</span>`)).join('');
       if (cnt('none')) h += row('s:none', 'Ничья', `<span class="ic"><i style="border-color:${NOBODY}"></i></span>`, `<span class="cnt">${cnt('none')}</span>`);
@@ -896,7 +925,8 @@
           <div class="side__m">${l.length > 1 ? `команд: ${l.length} · ` : ''}${tot != null ? `${tot} чел. · ` : ''}точек: ${n}</div></div>`;
       }).join('') + '</div>';
     }
-    if (g.points.length) {
+    if (isMedia(g)) h += `<div class="sec"><div class="box nomap">Игра проходит без карты полигона — вместо карты показана ${g.media.url ? 'схема (гифка или картинка)' : 'схема, когда её добавят'}.${g.media.link ? ` <a href="${esc(g.media.link)}" target="_blank" rel="noopener">${esc(g.media.linkLabel || 'Открыть проект')} ↗</a>` : ''}</div></div>`;
+    if (g.points.length && !isMedia(g)) {
       const ch = changesOf(g);
       h += `<div class="sec"><div class="sec__t">Положение точек</div>
         <div class="seg seg--phase"><button data-phase="before">До игры</button><button data-phase="after">После игры</button></div>`;
@@ -909,13 +939,13 @@
     const sc = scById(g.scenarioId);
     if (sc && sc.rules) h += `<div class="sec"><div class="sec__t">Правила сценария</div><div class="box">${esc(sc.rules)}</div></div>`;
     if (g.photos.length) h += `<div class="sec"><div class="sec__t">Фото игры <span>${g.photos.length}</span></div>${gallery('game', g.photos)}</div>`;
-    h += `<div class="sec"><div class="sec__t">Точки <span>${g.points.length}</span></div>`;
+    if (!isMedia(g)) { h += `<div class="sec"><div class="sec__t">Точки <span>${g.points.length}</span></div>`;
     h += g.points.length ? '<div class="plist" id="pointList">' + g.points.map(p =>
       `<button class="pitem" style="--c:${sideColor(owner(p))}" data-point="${esc(p.id)}"${store.canWrite() ? ` draggable="true" data-drag="${esc(p.id)}"` : ''}><span class="dot">${iconOf(p)}</span><b>${esc(p.name)}</b>${changed(p) ? '<span class="tag">смена</span>' : ''}<small>${squareOf(p.x, p.y).sq}</small></button>`).join('') + '</div>'
       : `<div class="box" style="color:var(--muted)">Точек нет.${store.canWrite() ? ' Нажмите «+ Точка» и кликните по карте.' : ''}</div>`;
-    h += '</div>';
-    if (g.arrows.length) h += `<p class="hint">Стрелок направлений на карте: ${g.arrows.length}.</p>`;
-    if (store.canWrite()) h += `<div class="admin-actions wrap"><button class="btn" id="editGameBtn">Изменить игру</button><button class="btn" id="dupGameBtn">Копировать игру</button></div>${g.points.length > 1 ? '<p class="hint">Порядок точек в списке меняется перетаскиванием.</p>' : ''}`;
+    h += '</div>'; }
+    if (g.arrows.length && !isMedia(g)) h += `<p class="hint">Стрелок направлений на карте: ${g.arrows.length}.</p>`;
+    if (store.canWrite()) h += `<div class="admin-actions wrap"><button class="btn" id="editGameBtn">Изменить игру</button><button class="btn" id="dupGameBtn">Копировать игру</button></div>${g.points.length > 1 && !isMedia(g) ? '<p class="hint">Порядок точек в списке меняется перетаскиванием.</p>' : ''}`;
     else if (fut) h += `<div class="admin-actions"><button class="btn primary" data-signup="${esc(g.id)}">Записаться на игру</button></div>`;
     return h;
   }
@@ -948,7 +978,7 @@
       return `<li><button class="fcard ${g.id === S.gameId ? 'active' : ''}" data-game="${esc(g.id)}">
         <div class="date">${i + 1}. ${esc(fmtDate(g.date))}${isFuture(g) ? ' · скоро' : ''}</div><h4>${esc(g.title)}</h4>
         ${g.summary ? `<p>${esc(g.summary)}</p>` : ''}${teamsMini(g)}
-        <div class="mini">${ch.length ? ch.map(p => `<span><b>${esc(p.name)}</b> <i style="--c:${sideColor(p.before)}"></i>→<i style="--c:${sideColor(p.after)}"></i></span>`).join('') : `<span class="muted">${isFuture(g) ? 'ещё не сыграна' : 'без смены владельцев'}</span>`}</div>
+        <div class="mini">${ch.length ? ch.map(p => `<span><b>${esc(p.name)}</b> <i style="--c:${sideColor(p.before)}"></i>→<i style="--c:${sideColor(p.after)}"></i></span>`).join('') : `<span class="muted">${isFuture(g) ? 'ещё не сыграна' : isMedia(g) ? 'без карты' : 'без смены владельцев'}</span>`}</div>
       </button></li>`;
     }).join('') + '</ol>';
   }
@@ -956,7 +986,7 @@
   function renderPoint(g, p) {
     setPanelHead('Точка', true);
     const color = sideColor(owner(p));
-    const hist = scGames(g.scenarioId).map(x => ({ g: x, q: findByName(x, p.name) })).filter(x => x.q);
+    const hist = scGames(g.scenarioId).filter(x => !isMedia(x)).map(x => ({ g: x, q: findByName(x, p.name) })).filter(x => x.q);
     let h = `<div class="pcard" style="--c:${color}"><span class="big">${iconOf(p)}</span>
         <div><div class="k">${esc(TYPES[p.type])}</div><h3>${esc(p.name)}</h3><div class="t">${esc(g.title)} · ${esc(fmtDate(g.date))}</div></div></div>
       <div class="own"><div style="--c:${sideColor(p.before)}"><small>До игры</small><b>${esc(sideName(p.before))}</b></div><span>→</span><div style="--c:${sideColor(p.after)}"><small>После игры</small><b>${esc(sideName(p.after))}</b></div></div>`;
@@ -1004,7 +1034,7 @@
     if (S.pointId) q.set('p', S.pointId); if (S.placeId) q.set('o', S.placeId);
     try { history.replaceState(null, '', q.toString() ? '#' + q.toString() : location.pathname + location.search); } catch (e) {}
   }
-  function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderPanel(); syncHash(); updateAdminUi(); }
+  function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderMediaView(); renderPanel(); syncHash(); updateAdminUi(); }
   function selectScenario(id, gameId) {
     S.scId = id || ''; S.pointId = null; S.placeId = null;
     const g = gameId ? D().games.find(x => x.id === gameId) : defaultGame(S.scId);
@@ -1111,10 +1141,12 @@
     const isNew = !g;
     const scId = g ? g.scenarioId : (curScenario() ? S.scId : d.scenarios[0].id);
     const last = scGames(scId).filter(x => !g || x.id !== g.id).pop();
+    const lastMap = scGames(scId).filter(x => (!g || x.id !== g.id) && !isMedia(x)).pop();   // откуда переносить точки
     // новая игра наследует команды сторон из прошлой игры сценария
     // отметки «кто был» в новую игру не переносим — состав на каждой игре свой
     const inherit = last ? Object.fromEntries(Object.entries(last.sides).map(([k, v]) => [k, { teams: (v.teams || []).map(e => ({ id: e.id, players: null, present: [] })), players: null }])) : {};
-    g = g || { id: Store.uid(), scenarioId: scId, title: '', date: today(), featured: false, summary: '', gather: '', result: '', photos: [], sides: inherit, points: [] };
+    g = g || { id: Store.uid(), scenarioId: scId, title: '', date: today(), featured: false, summary: '', gather: '', result: '', photos: [], sides: inherit, points: [], arrows: [], view: 'map', media: { url: '', caption: '', link: '', linkLabel: '' } };
+    const md = g.media || { url: '', caption: '', link: '', linkLabel: '' }, mediaOn = g.view === 'media', isData = md.url.startsWith('data:');
     const teamOpts = sel => `<option value="">— выберите команду —</option>` + d.teams.map(t => `<option value="${esc(t.id)}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
     const teamRowF = e => `<div class="strow"><select class="st-team" aria-label="Команда">${teamOpts(e.id)}</select>
         <input type="number" class="st-pl" min="0" max="999" inputmode="numeric" placeholder="чел." aria-label="Игроков в команде" value="${e.players ?? ''}">
@@ -1135,12 +1167,43 @@
         `<div class="row3">${fld('Название', `<input name="title" required maxlength="120" value="${esc(g.title)}">`)}${fld('Дата', `<input type="date" name="date" required value="${esc(g.date)}">`)}${fld('Начало', `<input type="time" name="time" value="${esc(g.time || '')}" placeholder="${esc(defStart())}">`, 'Для таймера вверху сайта. Пусто — ' + esc(defStart()))}</div>` +
         `<label class="check"><input type="checkbox" name="featured" ${g.featured ? 'checked' : ''}> Ближайшая игра — показать в анонсе вверху сайта</label>` +
         fld('Коротко об игре', `<input name="summary" maxlength="200" value="${esc(g.summary)}">`) +
+        `<div class="fld"><span>Где проходит игра</span><div class="vpick" role="radiogroup">
+          <label><input type="radio" name="view" value="map" ${mediaOn ? '' : 'checked'}><span><b>Карта полигона</b><small>точки, зоны и стрелки на карте</small></span></label>
+          <label><input type="radio" name="view" value="media" ${mediaOn ? 'checked' : ''}><span><b>Проект без карты</b><small>вместо карты — гифка или картинка</small></span></label></div></div>` +
+        `<div class="mediaf" ${mediaOn ? '' : 'hidden'}>` +
+          `<div class="fld"><span>Гифка или картинка</span><div class="mf-row"><input name="mediaUrl" maxlength="1000" placeholder="https://… или img/schema.gif" value="${isData ? '' : esc(md.url)}" autocomplete="off">
+            <label class="btn ghost mf-up">Загрузить файл<input type="file" accept="image/gif,image/png,image/jpeg,image/webp" data-mfile hidden></label></div>
+            <input type="hidden" name="mediaData" value="${isData ? esc(md.url) : ''}"><div class="mf-file" ${isData ? '' : 'hidden'}><span>${isData ? 'Загружен файл, ' + Math.round(md.url.length * .75 / 1024) + ' КБ' : ''}</span><button type="button" class="link" data-mfclear>убрать</button></div>
+            <div class="mf-prev"></div><small>GIF, PNG, JPG или WEBP. Ссылка на файл (в т.ч. Google Drive — доступ «Все, у кого есть ссылка»), путь к файлу в папке сайта (img/…) или загрузка с компьютера — до 1 МБ, файлы крупнее положите в папку img на GitHub.</small></div>` +
+          fld('Подпись под картинкой', `<input name="mediaCaption" maxlength="200" value="${esc(md.caption)}" placeholder="Например: схема поля из тюков сена">`) +
+          `<div class="row2">${fld('Ссылка на проект', `<input name="mediaLink" type="url" maxlength="500" value="${esc(md.link)}" placeholder="https://kktren.github.io/SOLOMKAv1/">`, 'Необязательно — под картинкой появится кнопка')}${fld('Текст кнопки', `<input name="mediaLinkLabel" maxlength="60" value="${esc(md.linkLabel)}" placeholder="Открыть проект">`)}</div>` +
+        '</div>' +
         `<div class="fld"><span>Стороны и команды на этой игре</span><div class="srows">${sidesRows}</div><small>${d.teams.length ? 'На стороне может быть сколько угодно команд. Число игроков команды считается по галочкам состава, а если состава нет — впишите его. «Всего на стороне» можно оставить пустым — сложится само.' : 'Справочник команд пуст — добавьте команды в «⚙ Настройки → Стороны и команды».'}</small></div>` +
         fld('Сбор (время, место)', `<textarea name="gather" rows="2">${esc(g.gather)}</textarea>`) +
         fld('Итог', `<textarea name="result" rows="3">${esc(g.result)}</textarea>`) +
         fld('Фото игры', `<textarea name="photos" rows="2" placeholder="https://drive.google.com/file/d/…/view | подпись">${esc(photosToText(g.photos))}</textarea>`, PHOTO_HINT) +
-        '' + (isNew && last ? `<label class="check"><input type="checkbox" name="copy" checked> Продолжить с итогов игры «${esc(last.title)}» (${esc(fmtDate(last.date))}): перенести точки, их зоны и владельцев</label>` : ''),
+        '' + (isNew && lastMap ? `<label class="check" data-mapopt ${mediaOn ? 'hidden' : ''}><input type="checkbox" name="copy" checked> Продолжить с итогов игры «${esc(lastMap.title)}» (${esc(fmtDate(lastMap.date))}): перенести точки, их зоны и владельцев</label>` : ''),
       onOpen: f => {
+        // «Карта полигона» / «Проект без карты»
+        const mfs = f.querySelector('.mediaf'), urlIn = f.querySelector('[name=mediaUrl]'), dataIn = f.querySelector('[name=mediaData]');
+        const fileBox = f.querySelector('.mf-file'), prev = f.querySelector('.mf-prev');
+        const showPrev = () => {
+          const u = dataIn.value || urlIn.value.trim();
+          prev.innerHTML = u && /^(https?:\/\/|img\/|data:image\/)/i.test(u) ? `<img src="${esc(mediaSrc(u))}" alt="Предпросмотр" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('small'),{textContent:'Картинка по этой ссылке не открывается'}))">` : '';
+        };
+        const viewSync = () => { const media = f.querySelector('[name=view]:checked').value === 'media'; mfs.hidden = !media; f.querySelectorAll('[data-mapopt]').forEach(el => { el.hidden = media; }); if (media) showPrev(); };
+        f.querySelectorAll('[name=view]').forEach(r => r.addEventListener('change', viewSync));
+        urlIn.addEventListener('input', () => { if (urlIn.value.trim()) { dataIn.value = ''; fileBox.hidden = true; } clearTimeout(urlIn._t); urlIn._t = setTimeout(showPrev, 400); });
+        f.querySelector('[data-mfclear]').onclick = () => { dataIn.value = ''; fileBox.hidden = true; showPrev(); };
+        f.querySelector('[data-mfile]').addEventListener('change', e => {
+          const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+          if (!/^image\/(gif|png|jpeg|webp)$/.test(file.type)) { toast('Нужен файл GIF, PNG, JPG или WEBP', 'err'); return; }
+          if (file.size * 4 / 3 > Store.MEDIA_MAX) { toast(`Файл ${(file.size / 1048576).toFixed(1)} МБ — больше 1 МБ. Положите его в папку img на GitHub и впишите img/${file.name}, или дайте ссылку.`, 'err'); return; }
+          const rd = new FileReader();
+          rd.onload = () => { dataIn.value = rd.result; urlIn.value = ''; fileBox.hidden = false; fileBox.querySelector('span').textContent = `Загружен файл: ${file.name}, ${Math.round(file.size / 1024)} КБ`; showPrev(); };
+          rd.readAsDataURL(file);
+        });
+        viewSync();
         const sync = row => { // с составом — число считается по галочкам и поле числа прячется
           const box = row.querySelector('.srow__roster'), num = row.querySelector('.st-pl'), has = !!box.querySelector('input');
           num.hidden = has; if (has) num.value = box.querySelectorAll('input:checked').length || '';
@@ -1182,9 +1245,17 @@
         });
         const data = Object.assign({}, g, {
           scenarioId: fd.get('scenarioId'), title: fd.get('title').trim(), date: fd.get('date'), time: (fd.get('time') || '').trim(), featured: !!fd.get('featured'),
-          summary: fd.get('summary').trim(), gather: fd.get('gather').trim(), result: fd.get('result').trim(), photos, sides
+          summary: fd.get('summary').trim(), gather: fd.get('gather').trim(), result: fd.get('result').trim(), photos, sides,
+          view: fd.get('view') === 'media' ? 'media' : 'map',
+          media: { url: (fd.get('mediaData') || fd.get('mediaUrl') || '').trim(), caption: (fd.get('mediaCaption') || '').trim(), link: (fd.get('mediaLink') || '').trim(), linkLabel: (fd.get('mediaLinkLabel') || '').trim() }
         });
-        if (isNew && fd.get('copy') && last) data.points = last.points.map(p => Object.assign({}, p, { id: Store.uid(), before: p.after, after: p.after, area: p.area.map(v => v.slice()), photos: [] }));
+        if (data.view === 'media') {
+          const u = data.media.url;
+          if (!u) throw new Error('Добавьте гифку или картинку: ссылку, путь img/… или файл');
+          if (!/^(https?:\/\/|img\/|data:image\/)/i.test(u)) throw new Error('Ссылка на картинку должна начинаться с https:// или img/');
+          if (data.media.link && !/^https?:\/\//i.test(data.media.link)) throw new Error('Ссылка на проект должна начинаться с https://');
+        }
+        if (isNew && fd.get('copy') && lastMap && data.view === 'map') data.points = lastMap.points.map(p => Object.assign({}, p, { id: Store.uid(), before: p.after, after: p.after, area: p.area.map(v => v.slice()), photos: [] }));
         if (data.featured) D().games.forEach(x => { x.featured = false; });
         const i = D().games.findIndex(x => x.id === g.id);
         if (i >= 0) D().games[i] = data; else D().games.push(data);
@@ -1697,7 +1768,11 @@
     $('#btnLogin').classList.toggle('on', on);
     $('#btnLogin').hidden = !(on || wantsAdmin());
     $('#btnLogin').title = on ? 'Режим админа включён' : 'Вход для админа';
-    $('#admEditGame').disabled = $('#admAddPoint').disabled = $('#admOwner').disabled = $('#admArrow').disabled = !curGame();
+    $('#admEditGame').disabled = !curGame();
+    const noMap = isMedia(curGame());   // в игре без карты рисовать по карте нечего
+    $('#admAddPoint').disabled = $('#admOwner').disabled = $('#admArrow').disabled = !curGame() || noMap;
+    $('#admAddPlace').disabled = $('#admLabel').disabled = noMap;
+    ['#admAddPoint', '#admOwner', '#admArrow', '#admAddPlace', '#admLabel'].forEach(k => { const b = $(k); if (b.dataset.t == null) b.dataset.t = b.title || ''; b.title = noMap ? 'Игра без карты — переключите её на карту в «Изменить игру»' : b.dataset.t; });
     $('#admEditScenario').disabled = !curScenario();
     $('#draftbar').hidden = !(on && store.hasDraft());
     $('#admDiscard').hidden = store.mode === 'supabase';
