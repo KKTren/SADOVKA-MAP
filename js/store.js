@@ -119,6 +119,19 @@
       };
     });
   }
+  function normRental(r) {
+    r = r && typeof r === 'object' ? r : {};
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    return { items: arr(r.items).filter(i => i && str(i.name, 80)).slice(0, 30).map(i => ({ id: i.id || uid(), name: str(i.name, 80),
+      price: isFinite(+i.price) && i.price !== '' && i.price != null ? Math.max(0, Math.round(+i.price)) : null, note: str(i.note, 120) })) };
+  }
+  const RATING_DEF = { show: true, game: 1, win: 3, draw: 1, point: 1, t1: 10, t2: 6, t3: 3 };
+  function normRating(r) {
+    r = r && typeof r === 'object' ? r : {};
+    const out = { show: r.show !== false };
+    for (const k of ['game', 'win', 'draw', 'point', 't1', 't2', 't3']) out[k] = isFinite(+r[k]) && r[k] !== '' && r[k] != null ? Math.max(0, Math.min(1000, +r[k])) : RATING_DEF[k];
+    return out;
+  }
   function normalizeDoc(d, cfg) {
     d = d || {};
     const g0 = (d.settings && d.settings.grid) || {}, gd = (cfg && cfg.grid) || { cols: 12, rows: 12 };
@@ -136,7 +149,11 @@
       // название полигона и эмблема (картинка: data:image/… из админки или ссылка); пусто — из js/config.js
       site: normSite(d.settings && d.settings.site),
       // подвал сайта: текст «о нас», колонки ссылок, строка внизу
-      footer: normFooter(d.settings && d.settings.footer)
+      footer: normFooter(d.settings && d.settings.footer),
+      // прокат: комплекты с ценами — игрок отмечает их в форме записи
+      rental: normRental(d.settings && d.settings.rental),
+      // рейтинг команд: сколько очков за что
+      rating: normRating(d.settings && d.settings.rating)
     };
     const sides = (arr(d.sides).length ? d.sides : DEFAULT_SIDES).map(s => ({ id: s.id || uid(), name: s.name || 'Сторона', color: color(s.color, '#a7aaa0') }));
     const str = (v, n) => String(v ?? '').slice(0, n);
@@ -184,6 +201,8 @@
         photos: arr(g.photos), sides: gs,
         // 'map' — игра на карте полигона, 'media' — без карты: вместо карты гифка или картинка
         view: g.view === 'media' ? 'media' : 'map', media: normMedia(g.media),
+        // итог игры: id стороны-победителя, 'draw' — ничья, '' — авто (у кого больше точек после игры)
+        winner: g.winner === 'draw' || ids.has(g.winner) ? g.winner : '',
         arrows: arr(g.arrows).map(a => ({ id: a.id || uid(), pts: poly(a.pts), color: paint(a.color), opacity: op(a.opacity), width: Math.min(20, Math.max(1, +a.width || 4)) })).filter(a => a.pts.length >= 2),
         points: arr(g.points).map(p => {
           const after = side(p.after != null ? p.after : p.status);
@@ -196,7 +215,9 @@
       };
     });
     const tournaments = normTournaments(d.tournaments, scenarios, teams);
-    return { version: 4, settings, sides, teams, info, links, labels, border: poly(d.border), places, scenarios, games, tournaments };
+    // «Первый раз?» — короткие вопросы и ответы для новичков над разделами «Для игроков»
+    const faq = arr(d.faq).filter(f => f && (f.q || f.a)).slice(0, 24).map(f => ({ id: f.id || uid(), q: str(f.q, 80), a: str(f.a, 400) }));
+    return { version: 4, settings, sides, teams, info, links, labels, border: poly(d.border), places, scenarios, games, tournaments, faq };
   }
 
   function JsonBackend(cfg) {
