@@ -11,12 +11,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="css/style.css?v=20261019a">
+<link rel="stylesheet" href="css/style.css?v=20261019b">
 </head>
 <body>
 
 <!-- ШАПКА САЙТА -->
-<header class="site-top">
+<header class="site-top" id="top">
   <div class="brand">
     <span class="brand__logo" id="brandLogo"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2l12 5v8c0 8-5.5 13-12 15C9.5 28 4 23 4 15V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 17l6-6 6 6M10 22l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>
     <span id="siteTitle">Полигон</span>
@@ -47,7 +47,7 @@
 </section>
 
 <!-- СЦЕНАРИИ: «Полигон» закреплён слева, дальше игры по сценариям -->
-<section class="hero" aria-label="Сценарии">
+<section class="hero" id="scenarios" aria-label="Сценарии">
   <div class="hero__in">
     <div class="sc-head"><h2>Сценарии</h2><span class="sc-hint">Выберите сценарий — ниже откроется его карта, правила и история игр</span></div>
     <div id="nextGame"></div>
@@ -154,6 +154,9 @@
 <!-- ИНФОРМАЦИЯ ДЛЯ ИГРОКОВ -->
 <section class="info" id="infoBlock" aria-labelledby="infoTitle"></section>
 
+<!-- ПОДВАЛ: о полигоне, полезные ссылки, соцсети -->
+<footer class="sfoot" id="siteFooter"></footer>
+
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 
 <div class="lightbox" id="lightbox" hidden>
@@ -167,8 +170,8 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="js/config.js?v=20261019a"></script>
-<script src="js/store.js?v=20261019a"></script>
-<script src="js/app.js?v=20261019a"></script>
+<script src="js/config.js?v=20261019b"></script>
+<script src="js/store.js?v=20261019b"></script>
+<script src="js/app.js?v=20261019b"></script>
 </body>
 </html>

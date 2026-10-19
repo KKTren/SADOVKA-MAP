@@ -658,7 +658,7 @@
     const act = tr.querySelector('.sc.active');
     if (act && !keepScroll) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     requestAnimationFrame(navState);
-    renderSoc(); renderInfo(); renderScene();
+    renderSoc(); renderInfo(); renderScene(); renderFooter();
   }
   /** Соединяет анонс с выбранной плиткой одной рамкой: перемычка от низа анонса до верха плитки. */
   function joinTab() {
@@ -834,6 +834,95 @@
   $('#btnNight').onclick = () => setNight(!S.night);
 
   /* ================================================================
+     ПОДВАЛ САЙТА: о полигоне, колонки полезных ссылок, соцсети
+     ================================================================ */
+  /** Якоря для ссылок подвала: #карта, #сценарии, #игрокам, #игра, #наверх, #раздел:Название раздела «Для игроков». */
+  const ANCHORS = { 'наверх': 'top', top: 'top', 'сценарии': 'scenarios', scenarios: 'scenarios', 'карта': 'legend', map: 'legend',
+    'игрокам': 'infoBlock', info: 'infoBlock', 'игра': 'scene', game: 'scene', 'турнир': 'tour', tour: 'tour' };
+  function goAnchor(raw) {
+    const a = decodeURIComponent(String(raw || '').replace(/^#/, '')).trim(), smooth = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    const sec = a.match(/^раздел:\s*(.+)$/i);
+    if (sec) { // раскрыть раздел «Для игроков» с таким заголовком
+      const d = [...document.querySelectorAll('#infoBlock details')].find(x => norm((x.querySelector('summary span') || x.querySelector('summary')).textContent) === norm(sec[1]));
+      if (d) { d.open = true; d.scrollIntoView({ behavior: smooth, block: 'start' }); return; }
+      return $('#infoBlock').scrollIntoView({ behavior: smooth });
+    }
+    const id = ANCHORS[a.toLowerCase()] || a;
+    if (id === 'top') return scrollTo({ top: 0, behavior: smooth });
+    if (id === 'tour') { if (S.scId && scTours(S.scId).length) { S.tab = 'tour'; renderPanel(); syncHash(); } return scrollToMap(); }
+    const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: smooth, block: 'start' });
+  }
+  document.addEventListener('click', e => { const a = e.target.closest('[data-anchor]'); if (a) { e.preventDefault(); goAnchor(a.dataset.anchor); } });
+  const footHref = u => /^(https?:|tel:|mailto:)/i.test(u) ? u : 'https://' + u;
+  const footLink = l => l.url.startsWith('#')
+    ? `<a href="#" data-anchor="${esc(l.url)}">${esc(l.label || l.url)}</a>`
+    : `<a href="${esc(footHref(l.url))}" ${/^(tel|mailto):/i.test(l.url) ? '' : 'target="_blank" rel="noopener"'}>${esc(l.label || l.url.replace(/^https?:\/\//, ''))}${/^(tel|mailto):/i.test(l.url) ? '' : ' <i aria-hidden="true">↗</i>'}</a>`;
+  /** Колонки по умолчанию — пока в админке подвал не заполнен. */
+  function defaultFootGroups() {
+    const d = D(), out = [];
+    out.push({ title: 'Сайт', links: [{ label: 'Ближайшая игра', url: '#игра' }, { label: 'Сценарии', url: '#сценарии' }, { label: 'Карта полигона', url: '#карта' }]
+      .concat(d.info.length ? [{ label: 'Для игроков', url: '#игрокам' }] : []) });
+    if (d.info.length) out.push({ title: 'Для игроков', links: d.info.slice(0, 8).map(s => ({ label: s.title, url: '#раздел:' + s.title })) });
+    const net = d.links.map(l => ({ label: l.label || (SOC[l.kind] || SOC.site).name, url: l.kind === 'phone' && !/^tel:/i.test(l.url) ? 'tel:' + l.url.replace(/[^\d+]/g, '') : l.url }));
+    if (net.length) out.push({ title: 'Мы в сети', links: net });
+    return out;
+  }
+  function renderFooter() {
+    const el = $('#siteFooter'); if (!el) return;
+    const d = D(), F = d.settings.footer || { about: '', copy: '', groups: [] }, admin = store.canWrite();
+    const groups = F.groups.length ? F.groups : defaultFootGroups(), f = featuredGame();
+    const soc = d.links.map(l => { const k = SOC[l.kind] || SOC.site, url = /^(https?:|tel:|mailto:)/i.test(l.url) ? l.url : (l.kind === 'phone' ? 'tel:' + l.url.replace(/[^\d+]/g, '') : 'https://' + l.url);
+      return `<a class="soc__a" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(l.label || k.name)}" aria-label="${esc(l.label || k.name)}">${k.svg}</a>`; }).join('');
+    el.innerHTML = `<div class="sfoot__in">
+        <div class="sfoot__brand">
+          <div class="sfoot__logo"><span class="brand__logo ${siteLogo() ? 'has-img' : ''}">${$('#brandLogo').innerHTML}</span><b>${esc(siteTitle())}</b></div>
+          ${F.about ? `<p>${linkify(F.about)}</p>` : ''}
+          ${f ? `<p class="sfoot__next">Ближайшая игра: <button class="link" data-open-game="${esc(f.id)}">${esc(fmtDate(f.date))} — ${esc(f.title)}</button></p>` : ''}
+          ${soc ? `<nav class="soc sfoot__soc" aria-label="Соцсети">${soc}</nav>` : ''}
+        </div>
+        ${groups.map(g => `<nav class="sfoot__col" aria-label="${esc(g.title || 'Ссылки')}">${g.title ? `<h3>${esc(g.title)}</h3>` : ''}<ul>${g.links.map(l => `<li>${footLink(l)}</li>`).join('')}</ul></nav>`).join('')}
+      </div>
+      <div class="sfoot__bar"><span>© ${new Date().getFullYear()} ${esc(siteTitle())}${F.copy ? ` · ${esc(F.copy)}` : ''}</span>
+        <span class="sfoot__acts">${admin ? '<button class="btn ghost" id="footEdit">✎ Изменить подвал</button>' : ''}<a href="#" data-anchor="#наверх" class="sfoot__up">Наверх ↑</a></span></div>`;
+    const b = $('#footEdit'); if (b) b.onclick = openFooterForm;
+  }
+  function openFooterForm() {
+    const F = D().settings.footer || { about: '', copy: '', groups: [] };
+    const toText = links => links.map(l => (l.label ? l.label + ' | ' : '') + l.url).join('\n');
+    const gRow = g => `<div class="irow fg" data-drag="${Store.uid()}" draggable="true"><div class="irow__h"><span class="grip" title="Перетащите">⋮⋮</span><input class="fg-t" value="${esc(g.title)}" maxlength="60" placeholder="Заголовок колонки, например «Игрокам»" aria-label="Заголовок колонки"><button type="button" class="iconbtn" data-rm aria-label="Удалить колонку">✕</button></div>
+      <textarea class="fg-l" rows="4" placeholder="Название | ссылка — по одной на строку" aria-label="Ссылки колонки">${esc(toText(g.links))}</textarea></div>`;
+    openDialog({
+      title: 'Подвал сайта',
+      body: `<div class="note">Подвал виден внизу каждой страницы. Пока колонки не заполнены, сайт показывает их сам: разделы сайта, «Для игроков» и ваши соцсети. Значки соцсетей берутся из «⚙ Настройки → Ссылки и соцсети».</div>` +
+        fld('О полигоне', `<textarea name="about" rows="3" maxlength="600" placeholder="Пара предложений: где полигон, какие игры проводите, как с вами связаться">${esc(F.about)}</textarea>`) +
+        `<div class="fld"><span>Колонки ссылок (до 6)</span><div class="irows" id="fgRows">${F.groups.map(gRow).join('')}</div>
+          <div class="admin-actions wrap"><button type="button" class="btn ghost" id="fgAdd">+ Колонка</button><button type="button" class="btn ghost" id="fgFill">Заполнить как сейчас</button></div>
+          <small>Строка — «Название | ссылка». Ссылки: https://…, vk.com/…, tel:+79780000000, mailto:почта. Переходы по сайту: <b>#игра</b>, <b>#сценарии</b>, <b>#карта</b>, <b>#турнир</b>, <b>#игрокам</b>, <b>#наверх</b>, а <b>#раздел:Прокат</b> откроет раздел «Для игроков» с таким заголовком.</small></div>` +
+        fld('Строка в самом низу', `<input name="copy" maxlength="160" value="${esc(F.copy)}" placeholder="например: Крым, Симферопольский район · ИП Иванов">`, 'Идёт после «© год Название».'),
+      onOpen: f => {
+        const box = f.querySelector('#fgRows');
+        const add = g => { if (box.children.length >= 6) { toast('Не больше 6 колонок', 'err'); return; } box.insertAdjacentHTML('beforeend', gRow(g)); enableDrag(box, () => {}); };
+        f.querySelector('#fgAdd').onclick = () => { add({ title: '', links: [] }); box.lastElementChild.querySelector('.fg-t').focus(); };
+        f.querySelector('#fgFill').onclick = () => { box.innerHTML = ''; defaultFootGroups().forEach(add); };
+        f.addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) b.closest('.fg').remove(); });
+        enableDrag(box, () => {});
+      },
+      onSubmit: async (fd, f) => {
+        const bad = [];
+        const groups = [...f.querySelectorAll('#fgRows .fg')].map(r => ({ title: r.querySelector('.fg-t').value.trim(),
+          links: r.querySelector('.fg-l').value.split('\n').map(x => x.trim()).filter(Boolean).map(line => {
+            const i = line.lastIndexOf('|'), label = i >= 0 ? line.slice(0, i).trim() : '', url = (i >= 0 ? line.slice(i + 1) : line).trim();
+            if (!/^(https?:\/\/|tel:|mailto:)\S+$/i.test(url) && !/^#[^"'<>]+$/.test(url) && !/^[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(url)) { bad.push(line); return null; }
+            return { label, url };
+          }).filter(Boolean) })).filter(g => g.title || g.links.length);
+        D().settings.footer = { about: fd.get('about').trim(), copy: fd.get('copy').trim(), groups };
+        await commit('Подвал сохранён');
+        if (bad.length) toast(`Пропущены строки с непонятной ссылкой: ${bad.slice(0, 3).join('; ')}`, 'err');
+      }
+    });
+  }
+
+  /* ================================================================
      ПАНЕЛЬ
      ================================================================ */
   function setPanelHead(title, sub) {
@@ -851,12 +940,14 @@
     const games = scGames(sc.id);
     let h = games.length ? `<div class="selectwrap"><label class="sr" for="gameSelect">Игра сценария</label><select id="gameSelect">${games.map(x =>
       `<option value="${esc(x.id)}" ${x.id === S.gameId ? 'selected' : ''}>${esc(fmtDate(x.date))} — ${esc(x.title)}${isFuture(x) ? ' (скоро)' : ''}</option>`).join('')}</select></div>` : '';
-    h += `<div class="seg" role="tablist">
+    const showTour = scTours(sc.id).length > 0 || store.canWrite();   // гостям вкладка видна, только если турнир есть
+    h += `<div class="seg ${showTour ? 'seg--5' : ''}" role="tablist">
         <button role="tab" data-tab="game" class="${S.tab === 'game' ? 'active' : ''}">Игра</button>
         <button role="tab" data-tab="rules" class="${S.tab === 'rules' ? 'active' : ''}">Сценарий</button>
         <button role="tab" data-tab="teams" class="${S.tab === 'teams' ? 'active' : ''}">Команды</button>
-        <button role="tab" data-tab="chain" class="${S.tab === 'chain' ? 'active' : ''}">Хроника</button></div>`;
-    h += S.tab === 'rules' ? scenarioHtml(sc) : S.tab === 'chain' ? chainHtml(sc) : S.tab === 'teams' && g ? teamsHtml(g) : g ? gameHtml(g) :
+        <button role="tab" data-tab="chain" class="${S.tab === 'chain' ? 'active' : ''}">Хроника</button>${showTour ? `
+        <button role="tab" data-tab="tour" class="${S.tab === 'tour' ? 'active' : ''}">Турнир</button>` : ''}</div>`;
+    h += S.tab === 'tour' && showTour ? tourHtml(sc) : S.tab === 'rules' ? scenarioHtml(sc) : S.tab === 'chain' ? chainHtml(sc) : S.tab === 'teams' && g ? teamsHtml(g) : g ? gameHtml(g) :
       `<div class="box" style="color:var(--muted)">В этом сценарии пока нет игр.${store.canWrite() ? '<br><br><button class="btn primary" id="emptyNew">Добавить игру</button>' : ''}</div>`;
     body.innerHTML = h;
     bindPanel(); syncPhaseButtons();
@@ -864,8 +955,12 @@
   function bindPanel() {
     const body = $('#panelBody');
     const gs = body.querySelector('#gameSelect'); if (gs) gs.onchange = e => selectGame(e.target.value);
-    body.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderPanel(); });
-    body.querySelectorAll('[data-game]').forEach(b => b.onclick = () => { S.tab = 'game'; selectGame(b.dataset.game); });
+    body.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderPanel(); syncHash(); });
+    // в «Хронике» клик по игре только переключает карту — вкладка остаётся, можно быстро листать игры
+    body.querySelectorAll('[data-game]').forEach(b => b.onclick = () => {
+      if (S.tab !== 'chain') S.tab = 'game';
+      const top = body.scrollTop; selectGame(b.dataset.game); body.scrollTop = top;
+    });
     body.querySelectorAll('[data-point]').forEach(b => b.onclick = () => selectPoint(b.dataset.point, true));
     body.querySelectorAll('[data-place]').forEach(b => b.onclick = () => selectPlace(b.dataset.place, true));
     const on = (id, fn) => { const el = body.querySelector('#' + id); if (el) el.onclick = fn; };
@@ -873,6 +968,10 @@
     on('editGameBtn', () => openGameForm(curGame()));
     on('editScBtn', () => openScenarioForm(curScenario()));
     on('dupGameBtn', () => duplicateGame(curGame()));
+    const ts = body.querySelector('#tourSelect'); if (ts) ts.onchange = e => { S.tourId = e.target.value; renderPanel(); syncHash(); };
+    body.querySelectorAll('[data-newtour]').forEach(b => b.onclick = () => openTourForm(null, b.dataset.newtour));
+    body.querySelectorAll('[data-edittour]').forEach(b => b.onclick = () => openTourForm(curTour()));
+    body.querySelectorAll('[data-bkwide]').forEach(b => b.onclick = openBracketWide);
     if (store.canWrite()) {
       const pl = body.querySelector('#pointList'); if (pl) enableDrag(pl, async ids => { const g = curGame(); g.points.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); await commit('Порядок точек сохранён'); });
       const ol = body.querySelector('#placeList'); if (ol) enableDrag(ol, async ids => { places().sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); await commit('Порядок объектов сохранён'); });
@@ -973,9 +1072,9 @@
   function chainHtml(sc) {
     const l = scGames(sc.id);
     if (!l.length) return '<div class="box" style="color:var(--muted)">Игр пока нет.</div>';
-    return `<p class="hint" style="margin:0 0 10px">Игры идут цепочкой: каждая начинается с того положения, которым закончилась предыдущая.</p><ol class="chain">` + l.map((g, i) => {
+    return `<p class="hint" style="margin:0 0 10px">Игры идут цепочкой: каждая начинается с того положения, которым закончилась предыдущая. Нажмите на игру — карта слева покажет её${S.gameId ? ', а подробности — на вкладке <button class="link" data-tab="game">«Игра»</button>' : ''}.</p><ol class="chain">` + l.map((g, i) => {
       const ch = changesOf(g);
-      return `<li><button class="fcard ${g.id === S.gameId ? 'active' : ''}" data-game="${esc(g.id)}">
+      return `<li><button class="fcard ${g.id === S.gameId ? 'active' : ''}" data-game="${esc(g.id)}" aria-pressed="${g.id === S.gameId}">
         <div class="date">${i + 1}. ${esc(fmtDate(g.date))}${isFuture(g) ? ' · скоро' : ''}</div><h4>${esc(g.title)}</h4>
         ${g.summary ? `<p>${esc(g.summary)}</p>` : ''}${teamsMini(g)}
         <div class="mini">${ch.length ? ch.map(p => `<span><b>${esc(p.name)}</b> <i style="--c:${sideColor(p.before)}"></i>→<i style="--c:${sideColor(p.after)}"></i></span>`).join('') : `<span class="muted">${isFuture(g) ? 'ещё не сыграна' : isMedia(g) ? 'без карты' : 'без смены владельцев'}</span>`}</div>
@@ -1027,11 +1126,204 @@
     const ep = $('#editPlaceBtn'); if (ep) ep.onclick = () => openPlaceForm(p);
   }
 
+  /* ================================================================
+     ТУРНИРЫ: сетка на выбывание и нумерованный список с очками
+     ================================================================ */
+  const scTours = scId => (D().tournaments || []).filter(t => t.scenarioId === scId);
+  const curTour = () => { const l = scTours(S.scId); return l.find(t => t.id === S.tourId) || l[0] || null; };
+  const teamById = id => D().teams.find(t => t.id === id) || null;
+  const CUP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v5a5 5 0 0 1-10 0z" fill="currentColor"/><path d="M7 5H4v1.5A3.5 3.5 0 0 0 7.5 10M17 5h3v1.5A3.5 3.5 0 0 1 16.5 10" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 13v4M8 21h8l-1-4H9z" fill="currentColor"/></svg>';
+  /** Раунды сетки. Команды играют парами по порядку (1–2, 3–4…). При нечётном числе последняя проходит
+      дальше без игры и в следующем раунде встаёт первой. Победитель пары переходит в следующий раунд. */
+  function bracket(t) {
+    let parts = t.teams.filter(id => teamById(id)).map(id => ({ team: id }));
+    const rounds = []; let num = 0;
+    if (parts.length < 2) return { rounds, champion: parts.length ? parts[0].team : null };
+    for (let r = 1; parts.length > 1; r++) {
+      const list = parts.slice(), bye = list.length % 2 ? list.pop() : null, matches = [], next = [];
+      for (let i = 0; i < list.length; i += 2) {
+        const key = `r${r}m${i / 2 + 1}`, a = list[i], b = list[i + 1], res = t.results[key] || {};
+        const winner = a.team && b.team && (res.winner === a.team || res.winner === b.team) ? res.winner : null;
+        const m = { key, num: ++num, a, b, winner, score: res.score || '', note: res.note || '' };
+        matches.push(m);
+        next.push(winner ? { team: winner } : { team: null, from: m.num });
+      }
+      rounds.push({ r, n: parts.length, matches, bye });
+      parts = bye ? [bye].concat(next) : next;
+    }
+    return { rounds, champion: parts[0].team };
+  }
+  const roundName = (R, i) => i === R.length - 1 ? 'Финал' : i === R.length - 2 && R[i].matches.length <= 2 ? 'Полуфинал' : `${i + 1}-й раунд`;
+  function slotHtml(p, m) {
+    if (!p.team) return `<span class="bk-t bk-t--tbd">Победитель матча ${p.from}</span>`;
+    const t = teamById(p.team), win = m && m.winner === p.team, lose = m && m.winner && !win;
+    const adm = store.canWrite() && m && m.a.team && m.b.team, tag = adm ? 'button' : 'span';
+    return `<${tag} ${adm ? `type="button" data-win="${esc(m.key)}" data-team="${esc(p.team)}" title="${win ? 'Снять победу' : 'Отметить победителем'}" aria-pressed="${win}"` : ''} class="bk-t ${win ? 'is-win' : ''} ${lose ? 'is-lose' : ''}">${teamBadge(p.team, '', 'tb--s')}<b>${esc(t ? t.name : '—')}</b>${win ? '<i class="bk-w" aria-label="победа">✓</i>' : ''}</${tag}>`;
+  }
+  const matchHtml = m => `<div class="bk-m ${m.winner ? 'is-done' : ''}">
+      <div class="bk-m__h"><span>Матч ${m.num}</span>${m.score ? `<b class="bk-score">${esc(m.score)}</b>` : ''}${store.canWrite() ? `<button type="button" class="bk-ed" data-medit="${esc(m.key)}" title="Счёт и примечание" aria-label="Счёт и примечание: матч ${m.num}">✎</button>` : ''}</div>
+      ${slotHtml(m.a, m)}${slotHtml(m.b, m)}${m.note ? `<div class="bk-note">${esc(m.note)}</div>` : ''}</div>`;
+  const byeHtml = p => `<div class="bk-bye">${slotHtml(p, null)}<small>проходит дальше без игры</small></div>`;
+  function bracketHtml(t, wide) {
+    const B = bracket(t);
+    if (!B.rounds.length) return `<div class="box" style="color:var(--muted)">Для сетки нужно хотя бы две команды${store.canWrite() ? ' — добавьте их в «Изменить турнир»' : ''}.</div>`;
+    const ch = B.champion ? teamById(B.champion) : null;
+    let h = ch ? `<div class="bk-champ">${teamBadge(ch.id, '', 'tb--m')}<div><small>Победитель турнира</small><b>${esc(ch.name)}</b></div><span class="bk-cup">${CUP}</span></div>` : '';
+    h += `<div class="bk ${wide ? 'bk--wide' : ''}">` + B.rounds.map((R, i) => `<section class="bk-r"><h4 class="bk-r__t">${roundName(B.rounds, i)}<small>${R.matches.length} ${plural(R.matches.length, 'пара', 'пары', 'пар')}</small></h4>
+        <div class="bk-r__m">${R.matches.map(matchHtml).join('')}${R.bye ? byeHtml(R.bye) : ''}</div></section>`).join('') + '</div>';
+    if (!wide) h += `<button type="button" class="btn ghost bk-open" data-bkwide>Сетка целиком ⤢</button>`;
+    return h;
+  }
+  /** Список: места по очкам (больше — выше), при равных очках место общее. */
+  function listHtml(t) {
+    const rows = t.rows.filter(r => teamById(r.team)).map((r, i) => ({ r, i }))
+      .sort((a, b) => ((b.r.points ?? -Infinity) - (a.r.points ?? -Infinity)) || a.i - b.i).map(x => x.r);
+    if (!rows.length) return `<div class="box" style="color:var(--muted)">Список пока пуст.</div>`;
+    let place = 0, prev;
+    return '<ol class="lb">' + rows.map((r, k) => {
+      if (k === 0 || r.points !== prev) { place = k + 1; prev = r.points; }
+      const tm = teamById(r.team), pts = r.points != null ? String(r.points).replace('.', ',') : '—';
+      return `<li class="lb-r ${place <= 3 && r.points != null ? 'lb-r--' + place : ''}"><span class="lb-n">${place}</span>${teamBadge(r.team, '', 'tb--s')}
+        <div class="lb-t"><b>${esc(tm.name)}</b>${r.note ? `<small>${esc(r.note)}</small>` : ''}</div>
+        <span class="lb-p">${pts}${r.points != null ? `<small>${plural(Math.abs(Math.round(r.points)), 'очко', 'очка', 'очков')}</small>` : ''}</span></li>`;
+    }).join('') + '</ol>';
+  }
+  function tourHtml(sc) {
+    const list = scTours(sc.id), admin = store.canWrite(), t = curTour();
+    const add = `<button class="btn ghost" data-newtour="bracket">+ Турнирная сетка</button><button class="btn ghost" data-newtour="list">+ Список с очками</button>`;
+    if (!t) return `<div class="box" style="color:var(--muted)">Турниров в этом сценарии пока нет.${admin ? ' Создайте турнирную сетку на выбывание или простой список команд с очками.' : ''}</div>` + (admin ? `<div class="admin-actions wrap">${add}</div>` : '');
+    let h = list.length > 1 ? `<div class="selectwrap"><label class="sr" for="tourSelect">Турнир</label><select id="tourSelect">${list.map(x => `<option value="${esc(x.id)}" ${x.id === t.id ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>` : '';
+    const n = t.kind === 'list' ? t.rows.length : t.teams.length;
+    h += `<div class="gamehead"><div class="date">${t.kind === 'list' ? 'Список' : 'Турнирная сетка'} · ${n} ${plural(n, 'команда', 'команды', 'команд')}</div><h3>${esc(t.title)}</h3>${t.note ? `<p>${linkify(t.note)}</p>` : ''}</div>`;
+    h += t.kind === 'list' ? listHtml(t) : bracketHtml(t);
+    if (admin) h += `<div class="admin-actions wrap"><button class="btn" data-edittour>Изменить турнир</button>${add}</div>` +
+      (t.kind === 'bracket' ? '<p class="hint">Победителя пары отметьте кликом по команде (повторный клик снимает). Счёт и примечание — кнопка ✎ у матча.</p>' : '');
+    return h;
+  }
+  async function setWinner(key, team) {
+    const t = curTour(); if (!t) return;
+    const r = t.results[key] || (t.results[key] = { winner: '', score: '', note: '' });
+    r.winner = r.winner === team ? '' : team;
+    await commit(r.winner ? `${teamById(team)?.name || 'Команда'} — победа в паре` : 'Победа снята');
+  }
+  function openMatchForm(key) {
+    const t = curTour(); if (!t) return;
+    if ($('#dlg').open) $('#dlg').close();   // из «Сетки целиком» — окно матча открывается вместо неё
+    const m = bracket(t).rounds.flatMap(R => R.matches).find(x => x.key === key); if (!m) return;
+    const nm = p => p.team ? (teamById(p.team)?.name || '—') : `Победитель матча ${p.from}`;
+    const both = m.a.team && m.b.team;
+    openDialog({
+      title: `Матч ${m.num}: ${nm(m.a)} — ${nm(m.b)}`,
+      body: (both ? fld('Победитель', `<select name="winner"><option value="">— ещё не сыграли —</option>${[m.a, m.b].map(p => `<option value="${esc(p.team)}" ${m.winner === p.team ? 'selected' : ''}>${esc(nm(p))}</option>`).join('')}</select>`)
+          : '<div class="note">Соперник в этой паре ещё не определился — победителя можно будет отметить позже.</div>') +
+        fld('Счёт', `<input name="score" maxlength="20" value="${esc(m.score)}" placeholder="например 3:1">`) +
+        fld('Примечание', `<input name="note" maxlength="200" value="${esc(m.note)}">`),
+      onSubmit: async fd => {
+        const tt = curTour(), r = tt.results[key] || (tt.results[key] = { winner: '', score: '', note: '' });
+        if (both) r.winner = fd.get('winner') || '';
+        r.score = fd.get('score').trim(); r.note = fd.get('note').trim();
+        await commit('Матч сохранён');
+      }
+    });
+  }
+  function openBracketWide() {
+    const t = curTour(); if (!t) return;
+    openDialog({ title: t.title, body: bracketHtml(t, true) + (store.canWrite() ? '<p class="hint">Клик по команде — победитель пары, ✎ — счёт и примечание.</p>' : '') });
+    const dlg = $('#dlg'); dlg.classList.add('dlg--wide'); dlg.dataset.wide = t.id;
+    dlg.addEventListener('close', () => { dlg.classList.remove('dlg--wide'); delete dlg.dataset.wide; }, { once: true });
+  }
+  /** Если открыта «Сетка целиком» — перерисовать её после изменения. */
+  function refreshWide() {
+    const dlg = $('#dlg'), t = curTour();
+    if (!dlg.open || !dlg.dataset.wide || !t || dlg.dataset.wide !== t.id) return;
+    const b = dlg.querySelector('.dlg__body .bk'); if (b) b.outerHTML = bracketHtml(t, true).replace(/^[\s\S]*?(<div class="bk bk--wide">)/, '$1');
+    const ch = dlg.querySelector('.dlg__body .bk-champ'), B = bracket(t);
+    if (ch) ch.remove();
+    if (B.champion) dlg.querySelector('.dlg__body').insertAdjacentHTML('afterbegin', `<div class="bk-champ">${teamBadge(B.champion, '', 'tb--m')}<div><small>Победитель турнира</small><b>${esc(teamById(B.champion).name)}</b></div><span class="bk-cup">${CUP}</span></div>`);
+  }
+  document.addEventListener('click', async e => {
+    const w = e.target.closest('[data-win]');
+    if (w && store.canWrite()) { e.preventDefault(); try { await setWinner(w.dataset.win, w.dataset.team); refreshWide(); } catch (x) {} return; }
+    const me = e.target.closest('[data-medit]');
+    if (me && store.canWrite()) { e.preventDefault(); openMatchForm(me.dataset.medit); }
+  });
+  function openTourForm(t, kind) {
+    const d = D(), sc = curScenario(), isNew = !t;
+    if (!sc) { toast('Сначала выберите сценарий', 'err'); return; }
+    if (!d.teams.length) { toast('Справочник команд пуст — добавьте команды: ⚙ Настройки → Стороны и команды', 'err'); return; }
+    t = t || { id: Store.uid(), scenarioId: sc.id, kind: kind === 'list' ? 'list' : 'bracket', title: '', note: '', teams: [], results: {}, rows: [] };
+    const opts = sel => '<option value="">— команда —</option>' + d.teams.map(x => `<option value="${esc(x.id)}" ${sel === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    const bRow = id => `<div class="erow tr-b" data-drag="${Store.uid()}" draggable="true"><span class="grip" title="Перетащите">⋮⋮</span><span class="tr-n"></span><select class="tr-team" aria-label="Команда">${opts(id)}</select><button type="button" class="iconbtn" data-rmr aria-label="Убрать команду">✕</button></div>`;
+    const lRow = r => `<div class="erow tr-l" data-id="${esc(r.id)}"><select class="tr-team" aria-label="Команда">${opts(r.team)}</select><input type="number" class="tr-pts" step="any" inputmode="decimal" value="${r.points ?? ''}" placeholder="очки" aria-label="Очки"><input class="tr-note" maxlength="200" value="${esc(r.note || '')}" placeholder="примечание" aria-label="Примечание"><button type="button" class="iconbtn" data-rmr aria-label="Убрать строку">✕</button></div>`;
+    openDialog({
+      title: isNew ? 'Новый турнир' : 'Турнир: ' + t.title,
+      body: `<div class="fld"><span>Вид</span><div class="vpick" role="radiogroup">
+          <label><input type="radio" name="kind" value="bracket" ${t.kind !== 'list' ? 'checked' : ''}><span><b>Турнирная сетка</b><small>пары на выбывание, победитель идёт дальше</small></span></label>
+          <label><input type="radio" name="kind" value="list" ${t.kind === 'list' ? 'checked' : ''}><span><b>Список</b><small>место, команда и очки</small></span></label></div></div>` +
+        fld('Название', `<input name="title" required maxlength="100" value="${esc(t.title)}" placeholder="Например: Кубок Садовки — осень">`) +
+        fld('Примечание', `<textarea name="note" rows="2" maxlength="1000">${esc(t.note)}</textarea>`, 'Видно над таблицей: формат, призы, регламент. Ссылки https://… кликабельны.') +
+        `<div class="fld tr-sec" data-k="bracket"><span>Команды — пары первого раунда</span><div class="erows" id="trB">${(t.teams.length ? t.teams : ['', '']).map(bRow).join('')}</div>
+          <div class="admin-actions wrap"><button type="button" class="btn ghost" id="trAddB">+ Команда</button><button type="button" class="btn ghost" id="trAllB">Все команды из справочника</button><button type="button" class="btn ghost" id="trShuf">Перемешать (жеребьёвка)</button></div>
+          <div class="tr-pairs" id="trPairs"></div>
+          <small>Пары идут сверху вниз: 1-я команда с 2-й, 3-я с 4-й… При нечётном числе последняя проходит в следующий раунд без игры. Порядок меняется перетаскиванием за ⋮⋮.</small>
+          ${!isNew && Object.keys(t.results).length ? '<label class="check"><input type="checkbox" name="reset"> Сбросить результаты всех матчей (победителей, счёт, примечания)</label>' : ''}</div>` +
+        `<div class="fld tr-sec" data-k="list"><span>Строки списка</span><div class="erows" id="trL">${(t.rows.length ? t.rows : [{ id: Store.uid(), team: '', points: null, note: '' }]).map(lRow).join('')}</div>
+          <div class="admin-actions wrap"><button type="button" class="btn ghost" id="trAddL">+ Строка</button><button type="button" class="btn ghost" id="trAllL">Все команды из справочника</button></div>
+          <small>Места считаются сами — по очкам, от большего к меньшему. При равных очках место общее.</small></div>`,
+      onOpen: f => {
+        const bBox = f.querySelector('#trB'), lBox = f.querySelector('#trL');
+        const kindSync = () => { const k = f.querySelector('[name=kind]:checked').value; f.querySelectorAll('.tr-sec').forEach(s => { s.hidden = s.dataset.k !== k; }); };
+        // одна команда — один раз в турнире: занятые пункты в других строках выключаем
+        const taken = box => { const used = [...box.querySelectorAll('.tr-team')].map(x => x.value).filter(Boolean);
+          box.querySelectorAll('.tr-team').forEach(sel => [...sel.options].forEach(o => { o.disabled = !!o.value && o.value !== sel.value && used.includes(o.value); })); };
+        const upd = () => {
+          const rows = [...bBox.querySelectorAll('.tr-b')];
+          rows.forEach((r, i) => { r.querySelector('.tr-n').textContent = (i + 1) + '.'; r.classList.toggle('pair-end', i % 2 === 1); });
+          const names = rows.map(r => r.querySelector('select')).filter(s => s.value).map(s => s.options[s.selectedIndex].text), p = [];
+          for (let i = 0; i + 1 < names.length; i += 2) p.push(`${esc(names[i])} — ${esc(names[i + 1])}`);
+          if (names.length % 2) p.push(`${esc(names[names.length - 1])} → без игры`);
+          f.querySelector('#trPairs').innerHTML = names.length >= 2 ? `<b>Пары 1-го раунда:</b> ${p.join(' · ')}` : '';
+          taken(bBox); taken(lBox);
+        };
+        const drag = () => enableDrag(bBox, upd);
+        const free = box => d.teams.map(x => x.id).filter(id => ![...box.querySelectorAll('.tr-team')].some(s => s.value === id));
+        f.querySelectorAll('[name=kind]').forEach(r => r.addEventListener('change', kindSync));
+        f.querySelector('#trAddB').onclick = () => { bBox.insertAdjacentHTML('beforeend', bRow('')); drag(); upd(); bBox.lastElementChild.querySelector('select').focus(); };
+        f.querySelector('#trAddL').onclick = () => { lBox.insertAdjacentHTML('beforeend', lRow({ id: Store.uid(), team: '', points: null, note: '' })); upd(); lBox.lastElementChild.querySelector('select').focus(); };
+        f.querySelector('#trAllB').onclick = () => { const ids = free(bBox); [...bBox.querySelectorAll('.tr-team')].filter(s => !s.value).forEach(s => { if (ids.length) s.value = ids.shift(); }); ids.forEach(id => bBox.insertAdjacentHTML('beforeend', bRow(id))); drag(); upd(); };
+        f.querySelector('#trAllL').onclick = () => { const ids = free(lBox); [...lBox.querySelectorAll('.tr-team')].filter(s => !s.value).forEach(s => { if (ids.length) s.value = ids.shift(); }); ids.forEach(id => lBox.insertAdjacentHTML('beforeend', lRow({ id: Store.uid(), team: id, points: null, note: '' }))); upd(); };
+        f.querySelector('#trShuf').onclick = () => { const rows = [...bBox.children]; for (let i = rows.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rows[i], rows[j]] = [rows[j], rows[i]]; } rows.forEach(r => bBox.appendChild(r)); upd(); };
+        f.addEventListener('click', e => { const b = e.target.closest('[data-rmr]'); if (b) { b.closest('.erow').remove(); upd(); } });
+        f.addEventListener('change', e => { if (e.target.closest('.tr-team')) upd(); });
+        kindSync(); drag(); upd();
+      },
+      onSubmit: async (fd, f) => {
+        const kind = fd.get('kind') === 'list' ? 'list' : 'bracket';
+        const teams = [...new Set([...f.querySelectorAll('#trB .tr-team')].map(s => s.value).filter(Boolean))];
+        const seen = new Set();
+        const rows = [...f.querySelectorAll('#trL .tr-l')].map(r => ({ id: r.dataset.id, team: r.querySelector('.tr-team').value,
+          points: r.querySelector('.tr-pts').value === '' ? null : +r.querySelector('.tr-pts').value, note: r.querySelector('.tr-note').value.trim() }))
+          .filter(r => r.team && !seen.has(r.team) && seen.add(r.team));
+        if (kind === 'bracket' && teams.length < 2) throw new Error('Для турнирной сетки нужно хотя бы две команды');
+        if (kind === 'list' && !rows.length) throw new Error('Добавьте в список хотя бы одну команду');
+        const data = Object.assign({}, t, { kind, title: fd.get('title').trim(), note: fd.get('note').trim(), teams, rows, results: fd.get('reset') ? {} : t.results });
+        if (!D().tournaments) D().tournaments = [];
+        const i = D().tournaments.findIndex(x => x.id === t.id);
+        if (i >= 0) D().tournaments[i] = data; else D().tournaments.push(data);
+        S.tourId = data.id; S.tab = 'tour';
+        await commit(isNew ? 'Турнир создан' : 'Турнир сохранён');
+      },
+      onDelete: isNew ? null : async () => { D().tournaments = D().tournaments.filter(x => x.id !== t.id); S.tourId = null; await commit('Турнир удалён'); },
+      deleteText: 'Удалить турнир'
+    });
+  }
+
   /* ---------- выбор ---------- */
   function syncHash() {
     const q = new URLSearchParams();
     if (S.scId) q.set('s', S.scId); if (S.gameId && S.scId) q.set('g', S.gameId);
     if (S.pointId) q.set('p', S.pointId); if (S.placeId) q.set('o', S.placeId);
+    if (S.tab === 'tour' && S.scId) { q.set('t', 'tour'); const t = curTour(); if (t) q.set('tr', t.id); }   // ссылкой на турнир можно поделиться
     try { history.replaceState(null, '', q.toString() ? '#' + q.toString() : location.pathname + location.search); } catch (e) {}
   }
   function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderMediaView(); renderPanel(); syncHash(); updateAdminUi(); }
@@ -1658,7 +1950,8 @@
     d.games.forEach(g => {
       const n = `«${g.title}» (${fmtDate(g.date)})`;
       if (!g.date) add('err', `Игра «${g.title}»: не указана дата.`);
-      if (!g.points.length) add(isFuture(g) ? 'warn' : 'err', `Игра ${n}: нет точек на карте.`);
+      if (isMedia(g)) { if (!g.media.url) add('err', `Игра ${n}: игра без карты, но гифка или картинка не добавлена.`); }
+      else if (!g.points.length) add(isFuture(g) ? 'warn' : 'err', `Игра ${n}: нет точек на карте.`);
       if (!Object.keys(g.sides).length) add('warn', `Игра ${n}: не назначены команды сторонам.`);
       if (isFuture(g) && !g.gather) add('warn', `Игра ${n}: не указан сбор (время и место).`);
       if (g.featured && !isFuture(g)) add('info', `Игра ${n} уже прошла — отметка «ближайшая» будет снята при скачивании.`);
@@ -1930,6 +2223,7 @@
     selectScenario(S.scId, g ? g.id : null);
     if (hpnt && curGame()?.points.some(p => p.id === hpnt)) { S.pointId = hpnt; refresh(); }
     if (hpl && places().some(p => p.id === hpl)) { S.placeId = hpl; refresh(); }
+    if (hp.get('t') === 'tour' && S.scId) { S.tab = 'tour'; if (hp.get('tr')) S.tourId = hp.get('tr'); refresh(); }
     if (wantsAdmin() && !store.canWrite()) openLogin();
     else if (store.mode === 'supabase' && store.canWrite() && store.isEmpty()) await afterSbLogin();
     // другой админ мог сохранить свою версию, пока вкладка была в фоне — подтягиваем

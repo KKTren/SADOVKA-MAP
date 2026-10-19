@@ -12,6 +12,9 @@
      border:    [[x,y], …],                         // граница полигона (доли ширины/высоты)
      places:    [{ id, name, x, y, type, icon, note, photos }],   // постоянные объекты полигона
      scenarios: [{ id, title, summary, rules, photos }],    // «Взвод», «Поиск пилота»…
+     tournaments: [{ id, scenarioId, kind:'bracket'|'list', title, note,
+                     teams:[teamId…], results:{ 'r1m1': { winner, score, note } },  // сетка: порядок команд = пары 1-го раунда
+                     rows:[{ id, team, points, note }] }],                          // список: место по очкам
      games:     [{ id, scenarioId, title, date:'ГГГГ-ММ-ДД', time:'ЧЧ:ММ', featured,
                    summary, gather, result, photos,
                    sides:{ [sideId]: { teams:[{ id:teamId, players, present:[playerId…] }], players } },  // players стороны — всего; пусто — сумма по командам
@@ -79,6 +82,41 @@
     const link = str(m.link, 500);
     return { url, caption: str(m.caption, 200), link: /^https?:\/\//i.test(link) ? link : '', linkLabel: str(m.linkLabel, 60) };
   }
+  /** Ссылка в подвале: https://…, tel:, mailto:, якорь #… или адрес без протокола (vk.com/…). */
+  const okLink = u => /^(https?:\/\/|tel:|mailto:)[^\s"'<>]{1,500}$/i.test(u) || /^#[^"'<>\n]{1,200}$/.test(u) || /^[\w-]+(\.[\w-]+)+(\/[^\s"'<>]*)?$/i.test(u);
+  function normFooter(f) {
+    f = f && typeof f === 'object' ? f : {};
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    return {
+      about: str(f.about, 600), copy: str(f.copy, 160),
+      groups: arr(f.groups).slice(0, 6).map(g => ({
+        title: str(g && g.title, 60),
+        links: arr(g && g.links).map(l => ({ label: str(l && l.label, 80), url: str(l && l.url, 500) })).filter(l => l.url && okLink(l.url)).slice(0, 20)
+      })).filter(g => g.title || g.links.length)
+    };
+  }
+  /** Турниры сценария: 'bracket' — сетка на выбывание, 'list' — нумерованный список с очками. */
+  function normTournaments(list, scenarios, teams) {
+    const scIds = new Set(scenarios.map(s => s.id)), tIds = new Set(teams.map(t => t.id));
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    return arr(list).filter(t => t && scIds.has(t.scenarioId)).map(t => {
+      const results = {};
+      const r0 = t.results && typeof t.results === 'object' ? t.results : {};
+      for (const k in r0) if (/^r\d{1,2}m\d{1,3}$/.test(k) && r0[k]) {
+        const r = r0[k], w = tIds.has(r.winner) ? r.winner : '';
+        const v = { winner: w, score: str(r.score, 20), note: str(r.note, 200) };
+        if (v.winner || v.score || v.note) results[k] = v;
+      }
+      return {
+        id: t.id || uid(), scenarioId: t.scenarioId, kind: t.kind === 'list' ? 'list' : 'bracket',
+        title: str(t.title, 100) || 'Турнир', note: str(t.note, 1000),
+        teams: [...new Set(arr(t.teams).map(String))].filter(id => tIds.has(id)).slice(0, 64),   // порядок = пары первого раунда
+        results,
+        rows: arr(t.rows).filter(r => r && tIds.has(String(r.team))).map(r => ({ id: r.id || uid(), team: String(r.team),
+          points: isFinite(+r.points) && r.points !== '' && r.points != null ? Math.round(+r.points * 100) / 100 : null, note: str(r.note, 200) })).slice(0, 100)
+      };
+    });
+  }
   function normalizeDoc(d, cfg) {
     d = d || {};
     const g0 = (d.settings && d.settings.grid) || {}, gd = (cfg && cfg.grid) || { cols: 12, rows: 12 };
@@ -94,7 +132,9 @@
       // верхняя сцена: галереи и время начала по умолчанию (null — берутся из js/config.js)
       hero: normHero(d.settings && d.settings.hero),
       // название полигона и эмблема (картинка: data:image/… из админки или ссылка); пусто — из js/config.js
-      site: normSite(d.settings && d.settings.site)
+      site: normSite(d.settings && d.settings.site),
+      // подвал сайта: текст «о нас», колонки ссылок, строка внизу
+      footer: normFooter(d.settings && d.settings.footer)
     };
     const sides = (arr(d.sides).length ? d.sides : DEFAULT_SIDES).map(s => ({ id: s.id || uid(), name: s.name || 'Сторона', color: color(s.color, '#a7aaa0') }));
     const str = (v, n) => String(v ?? '').slice(0, n);
@@ -153,7 +193,8 @@
         })
       };
     });
-    return { version: 4, settings, sides, teams, info, links, labels, border: poly(d.border), places, scenarios, games };
+    const tournaments = normTournaments(d.tournaments, scenarios, teams);
+    return { version: 4, settings, sides, teams, info, links, labels, border: poly(d.border), places, scenarios, games, tournaments };
   }
 
   function JsonBackend(cfg) {
