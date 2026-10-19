@@ -925,3 +925,60 @@ dialog.dlg--wide { width: min(1200px, 96vw); }
   .sfoot__brand { grid-column: 1 / -1; }
 }
 .gamehead + .bk, .gamehead + .bk-champ, .gamehead + .lb, .gamehead + .box { margin-top: 12px; }
+
+/* ---------- турнир поверх карты ---------- */
+.tov { position: absolute; z-index: 860; top: 12px; left: 310px; right: 12px; max-height: 62%; display: flex; flex-direction: column; background: #10150df0; border: 1px solid var(--amber); border-radius: 6px; box-shadow: 0 10px 30px #000c; backdrop-filter: blur(6px); }
+.tov[hidden] { display: none; }
+body.is-admin .tov { top: 96px; }
+.stage:has(.filters.collapsed) .tov, #app.media-mode .tov { left: 58px; }
+#app.media-mode .tov { left: 12px; }
+.tov__head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); }
+.tov__head b { font: 500 15px var(--head); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tov__head small { color: var(--dim); font-size: 12px; white-space: nowrap; }
+.tov__head .sp { flex: 1; }
+.tov__cup { width: 20px; height: 20px; color: var(--amber); flex: none; display: inline-flex; }
+.tov__cup svg { width: 100%; height: 100%; }
+.tov__btn { flex: none; padding: 5px 9px; border: 1px solid var(--line-2); border-radius: 3px; background: var(--panel-3); font: 500 11px var(--head); letter-spacing: .1em; text-transform: uppercase; }
+.tov__btn:hover { border-color: var(--amber); color: var(--amber); }
+.tov__body { overflow: auto; padding: 10px 12px 12px; overscroll-behavior: contain; }
+.tov .bk-champ { padding: 8px 12px; margin-bottom: 10px; }
+.tov .bk-champ b { font-size: 17px; }
+.bk--ov .bk-r { flex: 0 0 196px; }
+.bk--ov .bk-t { min-height: 30px; padding: 4px 8px; font-size: 13px; }
+.bk--ov .bk-m__h { min-height: 22px; }
+.tov .lb { max-width: 460px; }
+.stage .tov.is-min, .stage:has(.filters.collapsed) .tov.is-min, #app.media-mode .tov.is-min { left: auto; right: 12px; }
+.tov.is-min { max-height: none; background: none; border: 0; box-shadow: none; backdrop-filter: none; }
+.tov__pill { display: flex; align-items: center; gap: 8px; max-width: min(420px, 70vw); padding: 7px 12px; border: 1px solid var(--amber); border-radius: 999px; background: #1d1a10ee; box-shadow: 0 6px 20px #000a; font: 500 12px var(--head); letter-spacing: .08em; text-transform: uppercase; color: var(--text); }
+.tov__pill span:not(.tov__cup) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tov__pill b { color: var(--amber); font-weight: 500; }
+.tov__pill i { font-style: normal; color: var(--amber); }
+.tov__pill:hover { background: #2b2614; }
+.tov button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .tov, .stage:has(.filters.collapsed) .tov, #app.media-mode .tov { left: 8px; right: 8px; top: 8px; max-height: 58%; }
+  body.is-admin .tov { top: 8px; }
+  .stage .tov.is-min, .stage:has(.filters.collapsed) .tov.is-min, #app.media-mode .tov.is-min { left: auto; right: 8px; }
+  .tov__pill { max-width: calc(100vw - 80px); }
+  .tov__head small { display: none; }
+}
+
+/* ---------- карусель эмблем команд в шапке ---------- */
+.site-top .brand { flex: 0 1 auto; }
+.tcar { flex: 1 1 0; min-width: 0; height: 40px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent); mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent); }
+.tcar[hidden] { display: none; }
+.tcar__track { display: flex; width: max-content; }
+.tcar__set { display: flex; gap: 10px; padding-right: 10px; }
+.tcar:not(.is-moving) .tcar__set + .tcar__set { display: none; }
+.tcar:not(.is-moving) .tcar__set { padding-right: 0; }
+.tcar.is-moving { justify-content: flex-start; }
+.tcar.is-moving .tcar__track { animation: tcar var(--dur, 20s) linear infinite; }
+.tcar:hover .tcar__track { animation-play-state: paused; }
+@keyframes tcar { to { transform: translateX(-50%); } }
+.tcar__i { flex: none; width: 34px; height: 34px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; background: #0b0f09; border: 1px solid var(--line-2); opacity: 0; transition: opacity .3s; }
+.tcar__i.ok { opacity: 1; }
+.tcar__i img { width: 100%; height: 100%; object-fit: contain; display: block; }
+@media (max-width: 560px) { .tcar__i { width: 30px; height: 30px; } .tcar__set { gap: 7px; } }
+@media (max-width: 480px) { .tcar { display: none; } .tov__btn[data-tov=tab] { display: none; } }
+@media (prefers-reduced-motion: reduce) { .tcar.is-moving .tcar__track { animation: none; } .tcar { overflow-x: auto; } }

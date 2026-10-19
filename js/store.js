@@ -55,6 +55,7 @@
     v = v && typeof v === 'object' ? v : {};
     const logo = String(v.logo || '').trim();
     return {
+      carousel: v.carousel !== false,   // карусель эмблем команд в шапке
       title: String(v.title || '').trim().slice(0, 80),
       logo: /^data:image\/(png|webp|gif|svg\+xml);base64,[a-z0-9+/=]+$/i.test(logo) && logo.length < 400000 ? logo
         : /^(https?:\/\/|img\/)[^\s"'<>]{1,500}$/i.test(logo) ? logo : ''
@@ -109,6 +110,7 @@
       }
       return {
         id: t.id || uid(), scenarioId: t.scenarioId, kind: t.kind === 'list' ? 'list' : 'bracket',
+        overlay: t.overlay !== false,   // показывать поверх карты сценария
         title: str(t.title, 100) || 'Турнир', note: str(t.note, 1000),
         teams: [...new Set(arr(t.teams).map(String))].filter(id => tIds.has(id)).slice(0, 64),   // порядок = пары первого раунда
         results,

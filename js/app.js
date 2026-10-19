@@ -613,7 +613,7 @@
   }
   function renderHero() {
     const d = D(), f = featuredGame();
-    $('#heroTitle').textContent = siteTitle(); renderBrand();
+    $('#heroTitle').textContent = siteTitle(); renderBrand(); renderTeamCar();
     const g = bannerGame(), sc = curScenario();
     if (g) {
       const [y, m, dd] = g.date.split('-').map(Number), wd = WD[new Date(y, m - 1, dd).getDay()], fut = isFuture(g);
@@ -1132,6 +1132,9 @@
   const scTours = scId => (D().tournaments || []).filter(t => t.scenarioId === scId);
   const curTour = () => { const l = scTours(S.scId); return l.find(t => t.id === S.tourId) || l[0] || null; };
   const teamById = id => D().teams.find(t => t.id === id) || null;
+  const tourById = id => (D().tournaments || []).find(t => t.id === id) || null;
+  /** Турнир, который показывается поверх карты в этом сценарии (галочка «Показывать поверх карты»). */
+  const overlayTour = () => { if (!S.scId) return null; const l = scTours(S.scId).filter(t => t.overlay); const c = curTour(); return c && c.overlay ? c : l[0] || null; };
   const CUP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v5a5 5 0 0 1-10 0z" fill="currentColor"/><path d="M7 5H4v1.5A3.5 3.5 0 0 0 7.5 10M17 5h3v1.5A3.5 3.5 0 0 1 16.5 10" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 13v4M8 21h8l-1-4H9z" fill="currentColor"/></svg>';
   /** Раунды сетки. Команды играют парами по порядку (1–2, 3–4…). При нечётном числе последняя проходит
       дальше без игры и в следующем раунде встаёт первой. Победитель пары переходит в следующий раунд. */
@@ -1144,7 +1147,7 @@
       for (let i = 0; i < list.length; i += 2) {
         const key = `r${r}m${i / 2 + 1}`, a = list[i], b = list[i + 1], res = t.results[key] || {};
         const winner = a.team && b.team && (res.winner === a.team || res.winner === b.team) ? res.winner : null;
-        const m = { key, num: ++num, a, b, winner, score: res.score || '', note: res.note || '' };
+        const m = { key, num: ++num, a, b, winner, score: res.score || '', note: res.note || '', tid: t.id };
         matches.push(m);
         next.push(winner ? { team: winner } : { team: null, from: m.num });
       }
@@ -1158,20 +1161,20 @@
     if (!p.team) return `<span class="bk-t bk-t--tbd">Победитель матча ${p.from}</span>`;
     const t = teamById(p.team), win = m && m.winner === p.team, lose = m && m.winner && !win;
     const adm = store.canWrite() && m && m.a.team && m.b.team, tag = adm ? 'button' : 'span';
-    return `<${tag} ${adm ? `type="button" data-win="${esc(m.key)}" data-team="${esc(p.team)}" title="${win ? 'Снять победу' : 'Отметить победителем'}" aria-pressed="${win}"` : ''} class="bk-t ${win ? 'is-win' : ''} ${lose ? 'is-lose' : ''}">${teamBadge(p.team, '', 'tb--s')}<b>${esc(t ? t.name : '—')}</b>${win ? '<i class="bk-w" aria-label="победа">✓</i>' : ''}</${tag}>`;
+    return `<${tag} ${adm ? `type="button" data-win="${esc(m.key)}" data-tour="${esc(m.tid)}" data-team="${esc(p.team)}" title="${win ? 'Снять победу' : 'Отметить победителем'}" aria-pressed="${win}"` : ''} class="bk-t ${win ? 'is-win' : ''} ${lose ? 'is-lose' : ''}">${teamBadge(p.team, '', 'tb--s')}<b>${esc(t ? t.name : '—')}</b>${win ? '<i class="bk-w" aria-label="победа">✓</i>' : ''}</${tag}>`;
   }
   const matchHtml = m => `<div class="bk-m ${m.winner ? 'is-done' : ''}">
-      <div class="bk-m__h"><span>Матч ${m.num}</span>${m.score ? `<b class="bk-score">${esc(m.score)}</b>` : ''}${store.canWrite() ? `<button type="button" class="bk-ed" data-medit="${esc(m.key)}" title="Счёт и примечание" aria-label="Счёт и примечание: матч ${m.num}">✎</button>` : ''}</div>
+      <div class="bk-m__h"><span>Матч ${m.num}</span>${m.score ? `<b class="bk-score">${esc(m.score)}</b>` : ''}${store.canWrite() ? `<button type="button" class="bk-ed" data-medit="${esc(m.key)}" data-tour="${esc(m.tid)}" title="Счёт и примечание" aria-label="Счёт и примечание: матч ${m.num}">✎</button>` : ''}</div>
       ${slotHtml(m.a, m)}${slotHtml(m.b, m)}${m.note ? `<div class="bk-note">${esc(m.note)}</div>` : ''}</div>`;
   const byeHtml = p => `<div class="bk-bye">${slotHtml(p, null)}<small>проходит дальше без игры</small></div>`;
-  function bracketHtml(t, wide) {
+  function bracketHtml(t, wide, ov) {
     const B = bracket(t);
     if (!B.rounds.length) return `<div class="box" style="color:var(--muted)">Для сетки нужно хотя бы две команды${store.canWrite() ? ' — добавьте их в «Изменить турнир»' : ''}.</div>`;
     const ch = B.champion ? teamById(B.champion) : null;
     let h = ch ? `<div class="bk-champ">${teamBadge(ch.id, '', 'tb--m')}<div><small>Победитель турнира</small><b>${esc(ch.name)}</b></div><span class="bk-cup">${CUP}</span></div>` : '';
-    h += `<div class="bk ${wide ? 'bk--wide' : ''}">` + B.rounds.map((R, i) => `<section class="bk-r"><h4 class="bk-r__t">${roundName(B.rounds, i)}<small>${R.matches.length} ${plural(R.matches.length, 'пара', 'пары', 'пар')}</small></h4>
+    h += `<div class="bk ${wide ? 'bk--wide' : ''} ${ov ? 'bk--ov' : ''}">` + B.rounds.map((R, i) => `<section class="bk-r"><h4 class="bk-r__t">${roundName(B.rounds, i)}<small>${R.matches.length} ${plural(R.matches.length, 'пара', 'пары', 'пар')}</small></h4>
         <div class="bk-r__m">${R.matches.map(matchHtml).join('')}${R.bye ? byeHtml(R.bye) : ''}</div></section>`).join('') + '</div>';
-    if (!wide) h += `<button type="button" class="btn ghost bk-open" data-bkwide>Сетка целиком ⤢</button>`;
+    if (!wide && !ov) h += `<button type="button" class="btn ghost bk-open" data-bkwide>Сетка целиком ⤢</button>`;
     return h;
   }
   /** Список: места по очкам (больше — выше), при равных очках место общее. */
@@ -1200,14 +1203,14 @@
       (t.kind === 'bracket' ? '<p class="hint">Победителя пары отметьте кликом по команде (повторный клик снимает). Счёт и примечание — кнопка ✎ у матча.</p>' : '');
     return h;
   }
-  async function setWinner(key, team) {
-    const t = curTour(); if (!t) return;
+  async function setWinner(tid, key, team) {
+    const t = tourById(tid); if (!t) return;
     const r = t.results[key] || (t.results[key] = { winner: '', score: '', note: '' });
     r.winner = r.winner === team ? '' : team;
     await commit(r.winner ? `${teamById(team)?.name || 'Команда'} — победа в паре` : 'Победа снята');
   }
-  function openMatchForm(key) {
-    const t = curTour(); if (!t) return;
+  function openMatchForm(tid, key) {
+    const t = tourById(tid); if (!t) return;
     if ($('#dlg').open) $('#dlg').close();   // из «Сетки целиком» — окно матча открывается вместо неё
     const m = bracket(t).rounds.flatMap(R => R.matches).find(x => x.key === key); if (!m) return;
     const nm = p => p.team ? (teamById(p.team)?.name || '—') : `Победитель матча ${p.from}`;
@@ -1219,7 +1222,7 @@
         fld('Счёт', `<input name="score" maxlength="20" value="${esc(m.score)}" placeholder="например 3:1">`) +
         fld('Примечание', `<input name="note" maxlength="200" value="${esc(m.note)}">`),
       onSubmit: async fd => {
-        const tt = curTour(), r = tt.results[key] || (tt.results[key] = { winner: '', score: '', note: '' });
+        const tt = tourById(tid), r = tt.results[key] || (tt.results[key] = { winner: '', score: '', note: '' });
         if (both) r.winner = fd.get('winner') || '';
         r.score = fd.get('score').trim(); r.note = fd.get('note').trim();
         await commit('Матч сохранён');
@@ -1234,8 +1237,8 @@
   }
   /** Если открыта «Сетка целиком» — перерисовать её после изменения. */
   function refreshWide() {
-    const dlg = $('#dlg'), t = curTour();
-    if (!dlg.open || !dlg.dataset.wide || !t || dlg.dataset.wide !== t.id) return;
+    const dlg = $('#dlg'), t = tourById(dlg.dataset.wide);
+    if (!dlg.open || !t) return;
     const b = dlg.querySelector('.dlg__body .bk'); if (b) b.outerHTML = bracketHtml(t, true).replace(/^[\s\S]*?(<div class="bk bk--wide">)/, '$1');
     const ch = dlg.querySelector('.dlg__body .bk-champ'), B = bracket(t);
     if (ch) ch.remove();
@@ -1243,15 +1246,15 @@
   }
   document.addEventListener('click', async e => {
     const w = e.target.closest('[data-win]');
-    if (w && store.canWrite()) { e.preventDefault(); try { await setWinner(w.dataset.win, w.dataset.team); refreshWide(); } catch (x) {} return; }
+    if (w && store.canWrite()) { e.preventDefault(); try { await setWinner(w.dataset.tour, w.dataset.win, w.dataset.team); refreshWide(); } catch (x) {} return; }
     const me = e.target.closest('[data-medit]');
-    if (me && store.canWrite()) { e.preventDefault(); openMatchForm(me.dataset.medit); }
+    if (me && store.canWrite()) { e.preventDefault(); openMatchForm(me.dataset.tour, me.dataset.medit); }
   });
   function openTourForm(t, kind) {
     const d = D(), sc = curScenario(), isNew = !t;
     if (!sc) { toast('Сначала выберите сценарий', 'err'); return; }
     if (!d.teams.length) { toast('Справочник команд пуст — добавьте команды: ⚙ Настройки → Стороны и команды', 'err'); return; }
-    t = t || { id: Store.uid(), scenarioId: sc.id, kind: kind === 'list' ? 'list' : 'bracket', title: '', note: '', teams: [], results: {}, rows: [] };
+    t = t || { id: Store.uid(), scenarioId: sc.id, kind: kind === 'list' ? 'list' : 'bracket', title: '', note: '', teams: [], results: {}, rows: [], overlay: true };
     const opts = sel => '<option value="">— команда —</option>' + d.teams.map(x => `<option value="${esc(x.id)}" ${sel === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
     const bRow = id => `<div class="erow tr-b" data-drag="${Store.uid()}" draggable="true"><span class="grip" title="Перетащите">⋮⋮</span><span class="tr-n"></span><select class="tr-team" aria-label="Команда">${opts(id)}</select><button type="button" class="iconbtn" data-rmr aria-label="Убрать команду">✕</button></div>`;
     const lRow = r => `<div class="erow tr-l" data-id="${esc(r.id)}"><select class="tr-team" aria-label="Команда">${opts(r.team)}</select><input type="number" class="tr-pts" step="any" inputmode="decimal" value="${r.points ?? ''}" placeholder="очки" aria-label="Очки"><input class="tr-note" maxlength="200" value="${esc(r.note || '')}" placeholder="примечание" aria-label="Примечание"><button type="button" class="iconbtn" data-rmr aria-label="Убрать строку">✕</button></div>`;
@@ -1262,6 +1265,7 @@
           <label><input type="radio" name="kind" value="list" ${t.kind === 'list' ? 'checked' : ''}><span><b>Список</b><small>место, команда и очки</small></span></label></div></div>` +
         fld('Название', `<input name="title" required maxlength="100" value="${esc(t.title)}" placeholder="Например: Кубок Садовки — осень">`) +
         fld('Примечание', `<textarea name="note" rows="2" maxlength="1000">${esc(t.note)}</textarea>`, 'Видно над таблицей: формат, призы, регламент. Ссылки https://… кликабельны.') +
+        `<label class="check"><input type="checkbox" name="overlay" ${t.overlay !== false ? 'checked' : ''}> Показывать поверх карты — сетка или список висят на карте этого сценария (посетитель может свернуть)</label>` +
         `<div class="fld tr-sec" data-k="bracket"><span>Команды — пары первого раунда</span><div class="erows" id="trB">${(t.teams.length ? t.teams : ['', '']).map(bRow).join('')}</div>
           <div class="admin-actions wrap"><button type="button" class="btn ghost" id="trAddB">+ Команда</button><button type="button" class="btn ghost" id="trAllB">Все команды из справочника</button><button type="button" class="btn ghost" id="trShuf">Перемешать (жеребьёвка)</button></div>
           <div class="tr-pairs" id="trPairs"></div>
@@ -1306,7 +1310,7 @@
           .filter(r => r.team && !seen.has(r.team) && seen.add(r.team));
         if (kind === 'bracket' && teams.length < 2) throw new Error('Для турнирной сетки нужно хотя бы две команды');
         if (kind === 'list' && !rows.length) throw new Error('Добавьте в список хотя бы одну команду');
-        const data = Object.assign({}, t, { kind, title: fd.get('title').trim(), note: fd.get('note').trim(), teams, rows, results: fd.get('reset') ? {} : t.results });
+        const data = Object.assign({}, t, { kind, title: fd.get('title').trim(), note: fd.get('note').trim(), teams, rows, results: fd.get('reset') ? {} : t.results, overlay: !!fd.get('overlay') });
         if (!D().tournaments) D().tournaments = [];
         const i = D().tournaments.findIndex(x => x.id === t.id);
         if (i >= 0) D().tournaments[i] = data; else D().tournaments.push(data);
@@ -1318,6 +1322,53 @@
     });
   }
 
+  /* --- турнир поверх карты: можно свернуть в плашку (запоминается в браузере) --- */
+  function renderTourOverlay() {
+    const el = $('#tourOv'), t = overlayTour();
+    if (!t) { el.hidden = true; el.innerHTML = ''; el.dataset.tid = ''; return; }
+    const st = ls.get('pm-tov-min', {}), min = st[t.id] ?? isMobile();
+    const old = el.querySelector('.tov__body'), sl = old && el.dataset.tid === t.id ? [old.scrollLeft, old.scrollTop] : [0, 0];
+    const B = t.kind === 'bracket' ? bracket(t) : null, ch = B && B.champion ? teamById(B.champion) : null;
+    el.hidden = false; el.dataset.tid = t.id; el.classList.toggle('is-min', min);
+    el.innerHTML = min
+      ? `<button type="button" class="tov__pill" data-tov="open" title="Показать турнир поверх карты"><span class="tov__cup">${CUP}</span><span>${esc(t.title)}${ch ? ` · <b>${esc(ch.name)}</b>` : ''}</span><i aria-hidden="true">▾</i></button>`
+      : `<div class="tov__head"><span class="tov__cup">${CUP}</span><b>${esc(t.title)}</b><small>${t.kind === 'list' ? 'список' : 'турнирная сетка'}</small><span class="sp"></span>
+          <button type="button" class="tov__btn" data-tov="tab">Подробнее</button><button type="button" class="tov__btn" data-tov="min" aria-label="Свернуть турнир">Свернуть ▴</button></div>
+         <div class="tov__body">${t.kind === 'list' ? listHtml(t) : bracketHtml(t, true, true)}</div>`;
+    const nb = el.querySelector('.tov__body'); if (nb) { nb.scrollLeft = sl[0]; nb.scrollTop = sl[1]; }
+  }
+  $('#tourOv').addEventListener('click', e => {
+    const b = e.target.closest('[data-tov]'); if (!b) return;
+    const t = tourById($('#tourOv').dataset.tid); if (!t) return;
+    const st = ls.get('pm-tov-min', {});
+    if (b.dataset.tov === 'tab') { S.tab = 'tour'; S.tourId = t.id; S.pointId = S.placeId = null; renderPanel(); syncHash(); if (isMobile()) $('#panel').scrollIntoView({ behavior: 'smooth' }); return; }
+    st[t.id] = b.dataset.tov === 'min'; ls.set('pm-tov-min', st); renderTourOverlay();
+  });
+
+  /* --- карусель эмблем команд в шапке (эмблемы — из справочника команд, в т.ч. ссылки Google Drive) --- */
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function renderTeamCar() {
+    const el = $('#teamCar'); if (!el) return;
+    const site = D().settings.site || {}, list = D().teams.filter(t => t.logo && safeUrl(t.logo));
+    const on = site.carousel !== false && list.length > 0;
+    el.hidden = !on;
+    if (!on) { el.innerHTML = ''; el.dataset.key = ''; return; }
+    const key = list.map(t => t.id + '|' + t.logo + '|' + t.name).join('§'); if (el.dataset.key === key) return; el.dataset.key = key;
+    const item = (t, dup) => `<span class="tcar__i" title="${esc(t.name)}"${dup ? '' : ` role="listitem"`}><img src="${esc(photoSrc(t.logo, 160))}" alt="${dup ? '' : esc(t.name)}" loading="lazy" referrerpolicy="no-referrer" onload="this.parentNode.classList.add('ok')" onerror="this.parentNode.remove()"></span>`;
+    el.innerHTML = `<div class="tcar__track"><div class="tcar__set" role="list">${list.map(t => item(t)).join('')}</div><div class="tcar__set" aria-hidden="true">${list.map(t => item(t, true)).join('')}</div></div>`;
+    el.querySelectorAll('img').forEach(i => i.addEventListener('load', fitCar));
+    requestAnimationFrame(fitCar);
+  }
+  /** Листаем, только если эмблемы не помещаются; иначе стоят по центру. */
+  function fitCar() {
+    const el = $('#teamCar'); if (!el || el.hidden) return;
+    const set = el.querySelector('.tcar__set'); if (!set) return;
+    const move = !reduceMotion() && set.scrollWidth > el.clientWidth + 2;
+    el.classList.toggle('is-moving', move);
+    el.style.setProperty('--dur', Math.max(14, set.children.length * 2.6) + 's');
+  }
+  addEventListener('resize', fitCar);
+
   /* ---------- выбор ---------- */
   function syncHash() {
     const q = new URLSearchParams();
@@ -1326,7 +1377,7 @@
     if (S.tab === 'tour' && S.scId) { q.set('t', 'tour'); const t = curTour(); if (t) q.set('tr', t.id); }   // ссылкой на турнир можно поделиться
     try { history.replaceState(null, '', q.toString() ? '#' + q.toString() : location.pathname + location.search); } catch (e) {}
   }
-  function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderMediaView(); renderPanel(); syncHash(); updateAdminUi(); }
+  function refresh() { renderBorder(); renderHero(); renderLegend(); renderFilters(); renderMap(); applyLayers(); renderMediaView(); renderTourOverlay(); renderPanel(); syncHash(); updateAdminUi(); }
   function selectScenario(id, gameId) {
     S.scId = id || ''; S.pointId = null; S.placeId = null;
     const g = gameId ? D().games.find(x => x.id === gameId) : defaultGame(S.scId);
@@ -1692,6 +1743,8 @@
               <div class="logo-btns"><label class="btn">Загрузить картинку…<input type="file" id="logoFile" accept="image/png,image/webp,image/svg+xml,image/gif,image/jpeg" hidden></label>
                 <button type="button" class="btn ghost" id="logoDel">Убрать</button></div></div>
             <small>Лучше PNG или WebP с прозрачным фоном — фон так и останется прозрачным, без белых краёв. Картинка уменьшится до 256 точек и сохранится прямо в данных сайта.</small></div>
+          <label class="check"><input type="checkbox" name="carousel" ${site.carousel !== false ? 'checked' : ''}> Карусель эмблем команд в шапке — между названием и соцсетями</label>
+          <p class="hint">Эмблемы берутся из справочника команд: «⚙ Настройки → Стороны и команды», поле «Эмблема» (ссылка Google Drive или на картинку). Команды без эмблемы в карусель не попадают. ${D().teams.filter(t => t.logo).length} из ${D().teams.length} команд с эмблемой.</p>
         </section>
         <div class="note">Фото галерей листаются сами, по клику открываются крупно. Если галерею оставить совсем пустой, она скроется у посетителей.</div>
         ${gal(0)}${gal(1)}
@@ -1711,7 +1764,7 @@
         const galleries = [0, 1].map(k => { const { photos, warn } = parsePhotos(fd.get('ph' + k)); warns.push(...warn);
           return { title: fd.get('t' + k).trim(), tag: fd.get('tag' + k).trim(), fit: fd.get('fit' + k) ? 'contain' : 'cover', photos }; });
         D().settings.hero = { startTime: fd.get('start') || HC.startTime, galleries };
-        D().settings.site = { title: fd.get('siteTitle').trim(), logo };
+        D().settings.site = { title: fd.get('siteTitle').trim(), logo, carousel: !!fd.get('carousel') };
         await commit('Верх сайта сохранён');
         if (warns.length) toast(warns.join(' '), 'err');
       }
