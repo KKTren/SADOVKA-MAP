@@ -274,6 +274,9 @@
         st.marks[m.id] = row; st.log.push({ mark_id: m.id, game_id: m.game, kind: m.kind, data: row.data, author: row.author, gone: row.gone, at: t }); wr(st); return t; },
       async clear(g) { const st = rd(), t = stamp(); Object.values(st.marks).forEach(m => { if (m.game_id === g && m.kind !== 'pt' && !m.gone) { m.gone = true; m.updated_at = t; st.log.push({ mark_id: m.id, game_id: g, kind: m.kind, data: m.data, author: 'local', gone: true, at: t }); } }); wr(st); },
       async pull(g, since) { return { now: new Date().toISOString(), game: g, rows: rows(rd(), g, since) }; },
+      async guestPut(tk, m) { const st = rd(), sh = st.shares[tk]; if (!sh || sh.exp < Date.now()) throw new Error('link_expired');
+        if (!/^gu:[\w-]{6,64}$/.test(m.id) || (st.marks[m.id] && st.marks[m.id].kind !== 'guest')) throw new Error('bad_id');
+        return this.put(Object.assign({}, m, { game: sh.game, kind: 'guest' })); },
       async view(tk, since) { const st = rd(), sh = st.shares[tk]; if (!sh || sh.exp < Date.now()) throw new Error('link_expired');
         return { now: new Date().toISOString(), game: sh.game, rows: rows(st, sh.game, since).map(r => Object.assign({}, r, { author: '' })) }; },
       async journal(g, n = 200) { return rd().log.filter(l => l.game_id === g).slice(-n).reverse(); },
@@ -395,6 +398,7 @@
         clear: g => rpc('live_clear', { p_game: g }),
         pull: (g, since) => rpc('live_pull', { p_game: g, p_since: since || null }),
         view: (tk, since) => rpc('live_view', { p_token: tk, p_since: since || null }),
+        guestPut: (tk, m) => rpc('live_guest_put', { p_token: tk, p_id: m.id, p_data: m.data || {}, p_gone: !!m.gone }),
         journal: (g, n = 200) => rpc('live_journal', { p_game: g, p_limit: n }),
         shareNew: (g, h) => rpc('live_share_new', { p_game: g, p_hours: h }),
         shareStop: g => rpc('live_share_stop', { p_game: g })
