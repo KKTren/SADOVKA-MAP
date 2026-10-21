@@ -3027,6 +3027,21 @@
   /* ---------- метки ---------- */
   const lvCat = r => r.kind === 'route' && r.data && r.data.type === 'enemy' ? 'enemy' : r.kind === 'go' || r.kind === 'route' ? 'route' : r.kind;
   const lvMine = r => r.data && r.data.dev ? r.data.dev === lvDevice() : r.author && r.author === store.live.who();
+  /** Команды этой игры: id → { t, side, color }. */
+  function lvGameTeams() {
+    const g = liveGame(), m = new Map(); if (!g) return m;
+    for (const sid in g.sides) sideEntries(g.sides[sid]).forEach(e => m.set(e.id, { t: e.t, side: sid, color: sideColor(sid) }));
+    return m;
+  }
+  /** Эмблема команды в рамке цвета стороны (или первые буквы, если эмблемы нет). */
+  const lvEmblem = (tm, cls = '') => `<span class="lv-em ${cls}" style="--c:${esc(tm.color)}">${tm.t.logo && safeUrl(tm.t.logo) ? `<img src="${esc(photoSrc(tm.t.logo, 96))}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}<i>${esc(tm.t.name.slice(0, 2).toUpperCase())}</i></span>`;
+  /** На карте у каждой команды — только последние N приказов/маршрутов; старые прячутся (в журнале остаются). */
+  function lvCapped() {
+    const cap = lvPref().cap || 3, by = new Map(), out = new Set();
+    LVrow().forEach(r => { if (r.kind !== 'route' || r.gone || !r.data || r.data.toKind !== 'team' || !r.data.to) return; (by.get(r.data.to) || by.set(r.data.to, []).get(r.data.to)).push(r); });
+    by.forEach(l => l.sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(cap).forEach(r => out.add(r.id)));
+    return out;
+  }
   function lvAlive(r) {
     if (r.gone || r.kind === 'pt' || r.kind === 'msg' || r.kind === 'freq') return false;
     if (r.kind === 'enemy' && lvAge(r) > LV_ENEMY_TTL) return false;
@@ -3034,15 +3049,17 @@
     if (r.kind === 'route' && r.data && r.data.of && r.data.type === 'enemy') { const o = LVrow().get(r.data.of); if (!o || !lvAlive(o)) return false; }   // путь противника гаснет вместе с ним
     return true;
   }
-  function lvVisible(r) {
+  function lvVisible(r, capped) {
     if (!lvAlive(r)) return false;
+    if (capped instanceof Set && capped.has(r.id)) return false;   // filter(lvVisible) передаёт сюда номер — его игнорируем
     const P = lvPref(); if (P.show[lvCat(r)] === false) return false;
     return !P.hidden.includes(r.id);
   }
   function lvRenderMarks() {
     if (!S.live || !liveLayer) return;
     liveLayer.clearLayers();
-    const rows = [...LVrow().values()].filter(lvVisible), meKey = 'me:' + lvMeKey(), can = !S.live.viewer;
+    const capped = lvCapped(), teams = lvGameTeams();
+    const rows = [...LVrow().values()].filter(r => lvVisible(r, capped)), meKey = 'me:' + lvMeKey(), can = !S.live.viewer;
     const ico = (r, cls, inner, size = 30) => L.marker(toLL(r.data.x, r.data.y), { pane: 'live', keyboard: false, zIndexOffset: r.kind === 'me' ? 1000 : 0,
       icon: L.divIcon({ className: 'lv-wrap', html: `<div class="lv ${cls}">${inner}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] }) });
     rows.forEach(r => {
@@ -3074,7 +3091,8 @@
       } else if (r.kind === 'guest') {
         const st = age > LV_OLD ? ' lv--old' : age > LV_STALE ? ' lv--stale' : '', mine = r.id === 'gu:' + lvDevice();
         const cone = mine && S.live.heading != null ? `<i class="lv__cone" style="transform:rotate(${Math.round(S.live.heading + ROT * 90)}deg)"></i>` : '';
-        m = ico(r, 'lv--guest' + st + (mine ? ' lv--mine' : ''), `${cone}<i class="lv__dot"></i><span class="lv__lbl lv__lbl--g">${esc(d.name || 'Гость')} · ${ago}</span>`, 24);
+        const tm = d.team && teams.get(d.team);
+        m = ico(r, 'lv--guest' + st + (mine ? ' lv--mine' : '') + (tm ? ' lv--gt' : ''), `${cone}${tm ? lvEmblem(tm) : '<i class="lv__dot"></i>'}<span class="lv__lbl lv__lbl--g"${tm ? ` style="--c:${esc(tm.color)}"` : ''}>${esc(d.name || 'Гость')}${tm ? ' · ' + esc(tm.t.name) : ''} · ${ago}</span>`, tm ? 30 : 24);
         m.on('click', () => lvGuestMenu(r)); m.addTo(liveLayer); return;
       } else if (r.kind === 'enemy') {
         m = ico(r, 'lv--enemy' + (age > LV_ENEMY_TTL / 2 ? ' lv--stale' : ''), `<i class="lv__dia"></i><span class="lv__lbl lv__lbl--r">враг${d.count ? ' ×' + esc(d.count) : ''} · ${ago}</span>`, 24);
@@ -3104,7 +3122,8 @@
     const d = r.data || {}, can = !S.live.viewer, mine = r.id === 'gu:' + lvDevice();
     const last = [...LVrow().values()].filter(m => m.kind === 'msg' && !m.gone && m.data && m.data.to === d.dev).sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
     const st = last ? `Последнее: «${esc(last.data.text)}» · ${d.ack === last.id ? '<b style="color:#6fd14a">✓ принял</b>' : '<b style="color:var(--amber)">ждём ответа</b>'}` : '';
-    const html = `<div class="lvm__t">${esc(d.name || 'Гость')}${mine ? ' (вы)' : ''}</div><div class="lvm__s">Гость по ссылке · ${esc(lvWhere(d.x, d.y))} · ${lvAgo(lvAge(r))}${d.gps ? ' · GPS' : ''}</div>
+    const tm = d.team && lvGameTeams().get(d.team);
+    const html = `<div class="lvm__t">${tm ? lvEmblem(tm, 'lv-em--s') + ' ' : ''}${esc(d.name || 'Гость')}${mine ? ' (вы)' : ''}</div><div class="lvm__s">${tm ? esc(tm.t.name) + ' · ' + esc(sideName(tm.side)) : 'Гость по ссылке'} · ${esc(lvWhere(d.x, d.y))} · ${lvAgo(lvAge(r))}${d.gps ? ' · GPS' : ''}</div>
       ${st ? `<div class="lvm__s">${st}</div>` : ''}
       ${can ? `<div class="lvm__s">Сообщение — придёт ему на телефон</div><div class="lvm__row">${LV_MSG.map(t => `<button type="button" class="lvm__b" data-msg="${esc(t)}">${esc(t)}</button>`).join('')}</div>
         <div class="lvm__row"><input class="lvm__in" data-mtxt maxlength="80" placeholder="свой текст"><button type="button" class="lvm__b" data-msg="">Отправить</button></div>
@@ -3120,33 +3139,43 @@
   }
   /** Гость отмечает себя: двойное нажатие или GPS. Ник спрашиваем один раз. */
   function lvGuestMe(x, y, extra = {}) {
-    const go = name => lvPut('guest', 'gu:' + lvDevice(), Object.assign({ x, y, name, ack: (LVrow().get('gu:' + lvDevice()) || { data: {} }).data.ack || '' }, extra));
-    const nm = ls.get('pm-guest-name', '');
-    if (nm) { go(nm); return; }
-    lvAskNick(n => go(n), { x, y });
+    const go = (name, team) => lvPut('guest', 'gu:' + lvDevice(), Object.assign({ x, y, name, team: team || '', ack: (LVrow().get('gu:' + lvDevice()) || { data: {} }).data.ack || '' }, extra));
+    const nm = ls.get('pm-guest-name', ''), tmSet = ls.get('pm-guest-team', null) !== null || !lvGameTeams().size;
+    if (nm && tmSet) { go(nm, ls.get('pm-guest-team', '')); return; }
+    lvAskNick((n, t) => go(n, t), { x, y });
   }
+  /** Позывной и команда — один раз. Команды — только те, что играют в этой игре. */
   function lvAskNick(cb, at) {
-    lvSheet(`<div class="lvm__t">Ваш позывной</div><div class="lvm__s">Его увидят организаторы рядом с вашей меткой.</div>
-      <div class="lvm__row"><input class="lvm__in" data-nick maxlength="24" placeholder="например, Сокол" value="${esc(ls.get('pm-guest-name', ''))}"><button type="button" class="lvm__b lvm__b--ok" data-ok>Готово</button></div>`, at || null, (e, sh) => {
+    const teams = [...lvGameTeams().entries()];
+    let sel = ls.get('pm-guest-team', null); if (sel === null) sel = teams.length ? null : '';
+    const html = nick => `<div class="lvm__t">Ваш позывной</div><div class="lvm__s">Его увидят организаторы рядом с вашей меткой.</div>
+      <div class="lvm__row"><input class="lvm__in" data-nick maxlength="24" placeholder="например, Сокол" value="${esc(nick)}"></div>
+      ${teams.length ? `<div class="lvm__s">За какую команду</div><div class="lvm__teams">${teams.map(([id, tm]) => `<button type="button" class="lvm__tm${sel === id ? ' on' : ''}" style="--c:${esc(tm.color)}" data-tm="${esc(id)}">${lvEmblem(tm, 'lv-em--s')}<b>${esc(tm.t.name)}</b><small>${esc(sideName(tm.side))}</small></button>`).join('')}
+        <button type="button" class="lvm__tm${sel === '' ? ' on' : ''}" style="--c:#888780" data-tm=""><span class="lv-em lv-em--s" style="--c:#888780"><i>—</i></span><b>Без команды</b></button></div>` : ''}
+      <div class="lvm__row"><button type="button" class="lvm__b lvm__b--ok" data-ok>Готово</button></div>`;
+    lvSheet(html(ls.get('pm-guest-name', '')), at || null, (e, sh) => {
+      const t = e.target.closest('[data-tm]'); if (t) { sel = t.dataset.tm; sh.set(html(sh.el.querySelector('[data-nick]').value)); return; }
       if (!e.target.closest('[data-ok]')) return;
       const n = (sh.el.querySelector('[data-nick]').value || '').trim().slice(0, 24); if (!n) { toast('Впишите позывной', 'err'); return; }
-      ls.set('pm-guest-name', n); sh.close(); cb && cb(n);
+      if (sel === null) { toast('Выберите команду — или «Без команды»', 'err'); return; }
+      ls.set('pm-guest-name', n); ls.set('pm-guest-team', sel); sh.close(); cb && cb(n, sel);
     });
-    setTimeout(() => { const i = document.querySelector('[data-nick]'); if (i) i.focus(); }, 50);
+    setTimeout(() => { const i = document.querySelector('[data-nick]'); if (i && !i.value) i.focus(); }, 50);
   }
   /** Гостю: новые сообщения и маршруты от организаторов — баннер сверху и вибрация. */
   function lvGuestInbox() {
     const L_ = S.live; if (!L_ || !L_.viewer) return;
     const me = lvDevice(), seen = ls.get('pm-guest-seen', []) || [];
     const box = $('#lvMsg'); if (!box) return;
-    const items = [...LVrow().values()].filter(r => !r.gone && r.data && r.data.to === me && (r.kind === 'msg' || r.kind === 'route') && lvAge(r) < 3 * 3600e3)
+    const myTeam = ls.get('pm-guest-team', ''), capped = lvCapped();
+    const items = [...LVrow().values()].filter(r => !r.gone && r.data && (r.data.to === me || (myTeam && r.data.toKind === 'team' && r.data.to === myTeam && !capped.has(r.id))) && (r.kind === 'msg' || r.kind === 'route') && lvAge(r) < 3 * 3600e3)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     const fresh = items.find(r => !seen.includes(r.id));
     if (!fresh) { box.hidden = true; return; }
     const d = fresh.data, T = LV_RT[d.type] || LV_RT.go;
     if (box.dataset.id !== fresh.id) { box.dataset.id = fresh.id; if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
     box.hidden = false;
-    box.innerHTML = `<b>📣 ${esc(d.name || 'Организатор')}:</b> ${fresh.kind === 'route' ? `ваш маршрут <span class="lv-n" style="--c:${esc(d.color || T.c)}">${esc(d.n || '')}</span> ${esc(d.text || T.n)}${d.label ? ' — ' + esc(d.label) : ''}` : esc(d.text)}
+    box.innerHTML = `<b>📣 ${esc(d.name || 'Организатор')}:</b> ${fresh.kind === 'route' ? `${d.toKind === 'team' ? 'команде ' + esc(d.toName || '') + ' — маршрут' : 'ваш маршрут'} <span class="lv-n" style="--c:${esc(d.color || T.c)}">${esc(d.n || '')}</span> ${esc(d.text || T.n)}${d.label ? ' — ' + esc(d.label) : ''}` : esc(d.text)}
       <span class="lvmsg__a">${fresh.kind === 'route' ? '<button type="button" data-show>Показать</button>' : ''}<button type="button" data-ack>Принял</button></span>`;
     box.onclick = e => {
       e.stopPropagation();
@@ -3333,21 +3362,22 @@
   function lvListRender() {
     const box = $('#lvList'); if (!box || !S.live) return;
     const P = lvPref(), all = P.listAll || S.live.viewer, tab = P.list === 'teams' ? 'teams' : P.list ? 'orders' : '';
-    const items = [...LVrow().values()].filter(r => lvAlive(r) && (r.kind === 'order' || r.kind === 'route' || (r.kind === 'go' && r.data && r.data.pts)) && (all || lvMine(r)))
+    const capped = lvCapped();
+    const items = [...LVrow().values()].filter(r => lvAlive(r) && !capped.has(r.id) && (r.kind === 'order' || r.kind === 'route' || (r.kind === 'go' && r.data && r.data.pts)) && (all || lvMine(r)))
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     const guests = [...LVrow().values()].filter(r => r.kind === 'guest' && lvAlive(r));
     const head = `<div class="lvl__hs"><button type="button" class="lvl__h${tab === 'orders' ? ' on' : ''}" data-lt="orders">📋 ${all ? 'Приказы' : 'Мои'} · ${items.length}</button><button type="button" class="lvl__h${tab === 'teams' ? ' on' : ''}" data-lt="teams">👥 Команды</button></div>`;
     box.classList.toggle('open', !!tab);
     if (!tab) { box.innerHTML = head; return; }
     if (tab === 'teams') {
-      const g = liveGame();
+      const g = liveGame(), onMap = id => guests.filter(r => r.data.team === id).length;
       const sides = g ? D().sides.filter(sd => g.sides[sd.id] && sideEntries(g.sides[sd.id]).length) : [];
       box.innerHTML = head + `<div class="lvl__b">${sides.map(sd => { const v = g.sides[sd.id], tot = sideTotal(v);
           return `<div class="lvl__side" style="--c:${esc(sd.color)}">${esc(sd.name)}${tot ? ` · ${tot} чел.` : ''}</div>` + sideEntries(v).map(e => `<div class="lvl__i" data-team="${esc(e.id)}" data-tn="${esc(e.t.name)}">${teamBadge(e.id, sd.id, 'tb--s')}
-            <button type="button" class="lvl__go" data-tgo><b>${esc(e.t.name)}</b><small>${e.players != null ? e.players + ' чел.' : e.t.players.length ? e.t.players.length + ' в составе' : ''}${e.t.captain ? ' · кэп ' + esc(e.t.captain) : ''}</small></button>
+            <button type="button" class="lvl__go" data-tgo><b>${esc(e.t.name)}</b><small>${e.players != null ? e.players + ' чел.' : e.t.players.length ? e.t.players.length + ' в составе' : ''}${onMap(e.id) ? ` · <b style="color:#ffb347">${onMap(e.id)} на карте</b>` : ''}${e.t.captain ? ' · кэп ' + esc(e.t.captain) : ''}</small></button>
             ${S.live.viewer ? '' : '<button type="button" class="lvl__x" data-tpath title="Задать маршрут команде">✎</button>'}</div>`).join(''); }).join('')
         || '<p class="lvl__e">В этой игре команды не назначены — «Изменить игру» → стороны и команды.</p>'}
-        ${guests.length ? `<div class="lvl__side" style="--c:#ffb347">Гости по ссылке · ${guests.length}</div>` + guests.map(r => `<div class="lvl__i" data-id="${esc(r.id)}"><span class="lv-n" style="--c:#ffb347">👤</span>
+        ${guests.filter(r => !r.data.team).length ? `<div class="lvl__side" style="--c:#ffb347">Гости без команды · ${guests.filter(r => !r.data.team).length}</div>` + guests.filter(r => !r.data.team).map(r => `<div class="lvl__i" data-id="${esc(r.id)}"><span class="lv-n" style="--c:#ffb347">👤</span>
             <button type="button" class="lvl__go" data-go><b>${esc(r.data.name || 'Гость')}</b><small>${esc(lvWhere(r.data.x, r.data.y))} · ${lvAgo(lvAge(r))}</small></button></div>`).join('') : ''}</div>`;
       return;
     }
@@ -3364,7 +3394,7 @@
     const lt = e.target.closest('[data-lt]'); if (lt) { const cur = lvPref().list; lvPrefSet({ list: (cur === lt.dataset.lt || (cur === true && lt.dataset.lt === 'orders')) ? false : lt.dataset.lt }); lvListRender(); return; }
     const all = e.target.closest('[data-all]'); if (all) { lvPrefSet({ listAll: all.checked }); lvListRender(); return; }
     const tm = e.target.closest('[data-team]');
-    if (tm) { if (e.target.closest('[data-tpath]')) lvDrawStart({ to: tm.dataset.team, toName: tm.dataset.tn, toKind: 'team', type: 'group' }); else openTeamCard(tm.dataset.team); return; }
+    if (tm) { if (e.target.closest('[data-tpath]')) lvDrawStart({ to: tm.dataset.team, toName: tm.dataset.tn, toKind: 'team', type: 'group' }); else lvTeamSheet(tm.dataset.team); return; }
     const it = e.target.closest('[data-id]'); if (!it) return; const r = LVrow().get(it.dataset.id); if (!r) return;
     if (e.target.closest('[data-hide]')) { lvHide(r.id); return; }
     const del = e.target.closest('[data-del]');
@@ -3372,6 +3402,24 @@
     if (e.target.closest('[data-go]')) { const d = r.data; const b = d.pts && d.pts.length > 1 ? L.latLngBounds(d.pts.map(([x, y]) => toLL(x, y))) : null;
       if (b) map.fitBounds(b, { paddingTopLeft: [30, 90], paddingBottomRight: [30, 110], maxZoom: map.getMaxZoom() - 1 }); else map.setView(toLL(d.x, d.y), Math.max(map.getZoom(), map.getMinZoom() + 2));
       if (r.kind === 'route') lvRouteMenu(r); else if (r.kind === 'guest') lvGuestMenu(r); else lvMarkMenu(r); }
+  }
+
+  /** Команда: кто из неё на карте и её последние приказы. */
+  function lvTeamSheet(id) {
+    const tm = lvGameTeams().get(id); if (!tm) { openTeamCard(id); return; }
+    const can = !S.live.viewer, cap = lvPref().cap || 3;
+    const people = [...LVrow().values()].filter(r => r.kind === 'guest' && lvAlive(r) && r.data.team === id);
+    const ords = [...LVrow().values()].filter(r => r.kind === 'route' && !r.gone && r.data && r.data.toKind === 'team' && r.data.to === id).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const html = `<div class="lvm__t">${lvEmblem(tm, 'lv-em--s')} ${esc(tm.t.name)}</div><div class="lvm__s">${esc(sideName(tm.side))} · на карте: ${people.length ? people.map(r => esc(r.data.name || 'гость')).join(', ') : 'никого'}</div>
+      ${ords.length ? `<div class="lvm__s">Приказы (на карте последние ${cap})</div>` + ords.slice(0, cap).map(r => { const d = r.data, T = LV_RT[d.type] || LV_RT.go;
+        return `<div class="lvo" data-rid="${esc(r.id)}"><span class="lv-n" style="--c:${esc(d.color || T.c)}">${esc(d.n || '')}</span><span>${esc(d.text || T.n)}${d.label ? ' — ' + esc(d.label) : ''}</span><small>${lvAgo(lvAge(r))}</small></div>`; }).join('')
+        + (ords.length > cap ? `<div class="lvm__s">ещё ${ords.length - cap} ${plural(ords.length - cap, 'старый', 'старых', 'старых')} — в журнале</div>` : '') : '<div class="lvm__s">Приказов пока нет.</div>'}
+      <div class="lvm__row">${can ? '<button type="button" class="lvm__b" data-tpath>✎ Маршрут команде</button>' : ''}<button type="button" class="lvm__b" data-card>Карточка команды</button></div>`;
+    lvSheet(html, null, (e, sh) => {
+      const o = e.target.closest('[data-rid]'); if (o) { const r = LVrow().get(o.dataset.rid); if (r) { map.fitBounds(L.latLngBounds(r.data.pts.map(([x, y]) => toLL(x, y))), { paddingTopLeft: [30, 90], paddingBottomRight: [30, 200] }); } return; }
+      if (e.target.closest('[data-tpath]')) { sh.close(); lvDrawStart({ to: id, toName: tm.t.name, toKind: 'team', type: 'group' }); return; }
+      if (e.target.closest('[data-card]')) { sh.close(); openTeamCard(id); }
+    });
   }
 
   /* ---------- частота: видят все, меняет админ ---------- */
@@ -3415,9 +3463,11 @@
       <div class="lvt__g">${Object.entries(LV_SHOW).map(([k, v]) => tg('s:' + k, v, P.show[k] !== false)).join('')}</div>
       ${P.hidden.length ? `<div class="lvm__row"><button type="button" class="lvm__b" data-unhide>Показать скрытые (${P.hidden.length})</button></div>` : ''}
       <div class="lvm__s">Прочее</div>
-      <div class="lvt__g">${L_.viewer ? '' : tg('x:pts', 'Можно двигать точки игры', !L_.lockAll)}${tg('x:compass', 'Компас — куда я смотрю', !!L_.compass)}</div>`; };
+      <div class="lvt__g">${L_.viewer ? '' : tg('x:pts', 'Можно двигать точки игры', !L_.lockAll)}${tg('x:compass', 'Компас — куда я смотрю', !!L_.compass)}</div>
+      <div class="lvm__s">Приказов на команду на карте</div><div class="lvm__row">${[2, 3, 5].map(n => `<button type="button" class="lvm__b${(P.cap || 3) === n ? ' on' : ''}" data-cap="${n}">${n}</button>`).join('')}</div>`; };
     lvSheet(html(), null, (e, sh) => {
       if (e.target.closest('[data-unhide]')) { lvPrefSet({ hidden: [] }); lvRenderMarks(); sh.set(html()); }
+      const c = e.target.closest('[data-cap]'); if (c) { lvPrefSet({ cap: +c.dataset.cap }); lvRenderMarks(); sh.set(html()); }
     });
     const el = lvSh && lvSh.el; if (!el) return;
     el.addEventListener('input', e => { if (e.target.matches('[data-op]')) { const v = +e.target.value / 100; lvPrefSet({ ptOp: v }); lvApplyOp(); el.querySelector('[data-opv]').textContent = Math.round(v * 100) + '%'; } });
@@ -3531,7 +3581,7 @@
     $('#lvRose').onclick = () => lvRotate(0);
     $('#lvFreq').onclick = lvFreqEdit;
     ['pointerdown', 'dblclick', 'contextmenu'].forEach(t => [$('#lvRot'), $('#lvRose'), $('#lvMsg')].forEach(el => el.addEventListener(t, e => e.stopPropagation())));
-    if (v) { $('#lvMe').onclick = () => lvGpsFix(true); $('#lvNick').onclick = () => lvAskNick(n => { const g = LVrow().get('gu:' + lvDevice()); if (g && !g.gone) lvPut('guest', g.id, Object.assign({}, g.data, { name: n })); }); }
+    if (v) { $('#lvMe').onclick = () => lvGpsFix(true); $('#lvNick').onclick = () => lvAskNick((n, t) => { const g = LVrow().get('gu:' + lvDevice()); if (g && !g.gone) lvPut('guest', g.id, Object.assign({}, g.data, { name: n, team: t })); }); }
     $('#lvList').addEventListener('click', lvListClick);
     ['pointerdown', 'dblclick', 'contextmenu', 'wheel'].forEach(t => $('#lvList').addEventListener(t, e => e.stopPropagation()));
     if (!v) {
