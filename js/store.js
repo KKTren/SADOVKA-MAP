@@ -251,7 +251,34 @@
       },
       async replace(data) { doc = normalizeDoc(data, cfg); return this.save(); },
       discardDraft() { ls.del(DRAFT_KEY); doc = structuredClone(published); return doc; },
-      exportData: () => Object.assign({ exported: new Date().toISOString() }, doc)
+      exportData: () => Object.assign({ exported: new Date().toISOString() }, doc),
+      live: LocalLive()
+    };
+  }
+
+  /* ================================================================
+     ЛАЙФ-КАРТА без базы: метки живут в этом браузере (вкладки видят друг друга).
+     Для работы вдвоём с разных телефонов нужна база Supabase (supabase/live.sql).
+     ================================================================ */
+  function LocalLive() {
+    const K = 'pm-live-v1';
+    const rd = () => { try { return Object.assign({ marks: {}, log: [], shares: {} }, JSON.parse(ls.get(K) || '{}')); } catch (e) { return { marks: {}, log: [], shares: {} }; } };
+    const wr = st => { st.log = st.log.slice(-2000); ls.set(K, JSON.stringify(st)); };
+    let last = 0;
+    const stamp = () => { let t = Date.now(); if (t <= last) t = last + 1; last = t; return new Date(t).toISOString(); };
+    const rows = (st, g, since) => Object.values(st.marks).filter(m => m.game_id === g && (!since || m.updated_at > since)).sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+    return {
+      shared: false,
+      who: () => 'local',
+      async put(m) { const st = rd(), t = stamp(); const row = { id: m.id, game_id: m.game, kind: m.kind, data: m.data || {}, author: 'local', gone: !!m.gone, updated_at: t };
+        st.marks[m.id] = row; st.log.push({ mark_id: m.id, game_id: m.game, kind: m.kind, data: row.data, author: row.author, gone: row.gone, at: t }); wr(st); return t; },
+      async clear(g) { const st = rd(), t = stamp(); Object.values(st.marks).forEach(m => { if (m.game_id === g && m.kind !== 'pt' && !m.gone) { m.gone = true; m.updated_at = t; st.log.push({ mark_id: m.id, game_id: g, kind: m.kind, data: m.data, author: 'local', gone: true, at: t }); } }); wr(st); },
+      async pull(g, since) { return { now: new Date().toISOString(), game: g, rows: rows(rd(), g, since) }; },
+      async view(tk, since) { const st = rd(), sh = st.shares[tk]; if (!sh || sh.exp < Date.now()) throw new Error('link_expired');
+        return { now: new Date().toISOString(), game: sh.game, rows: rows(st, sh.game, since).map(r => Object.assign({}, r, { author: '' })) }; },
+      async journal(g, n = 200) { return rd().log.filter(l => l.game_id === g).slice(-n).reverse(); },
+      async shareNew(g, h) { const st = rd(), tk = uid() + uid(); st.shares[tk] = { game: g, exp: Date.now() + h * 3600e3 }; wr(st); return tk; },
+      async shareStop(g) { const st = rd(); for (const k in st.shares) if (st.shares[k].game === g) delete st.shares[k]; wr(st); }
     };
   }
 
@@ -359,7 +386,19 @@
       },
       async replace(data) { doc = normalizeDoc(data, cfg); return this.save(); },
       discardDraft() { return doc; },
-      exportData: () => Object.assign({ exported: new Date().toISOString() }, doc)
+      exportData: () => Object.assign({ exported: new Date().toISOString() }, doc),
+      /** Лайф-карта: метки во время игры (supabase/live.sql). */
+      live: {
+        shared: true,
+        who: () => (session && session.email) || '',
+        put: m => rpc('live_put', { p_id: m.id, p_game: m.game, p_kind: m.kind, p_data: m.data || {}, p_gone: !!m.gone }),
+        clear: g => rpc('live_clear', { p_game: g }),
+        pull: (g, since) => rpc('live_pull', { p_game: g, p_since: since || null }),
+        view: (tk, since) => rpc('live_view', { p_token: tk, p_since: since || null }),
+        journal: (g, n = 200) => rpc('live_journal', { p_game: g, p_limit: n }),
+        shareNew: (g, h) => rpc('live_share_new', { p_game: g, p_hours: h }),
+        shareStop: g => rpc('live_share_stop', { p_game: g })
+      }
     };
   }
 

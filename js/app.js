@@ -475,7 +475,7 @@
     const admin = store.canWrite();
     g.arrows.forEach(a => {
       const sh = arrowShapes(a); if (!sh) return;
-      const c = paintColor(a.color), o = { pane: 'arrows', color: c, opacity: a.opacity, interactive: admin && !S.mode };
+      const c = paintColor(a.color), o = { pane: 'arrows', color: c, opacity: a.opacity, interactive: admin && !S.mode && !S.live };
       const grp = L.featureGroup([
         L.polyline(sh.line, Object.assign({}, o, { color: '#000', weight: a.width + 3, opacity: a.opacity * .45, lineCap: 'round', interactive: false })),
         L.polyline(sh.line, Object.assign({}, o, { weight: a.width, lineCap: 'round', lineJoin: 'round' })),
@@ -493,7 +493,7 @@
     D().labels.forEach(l => {
       const k = l.scale ? zk : 1;
       const m = L.marker(toLL(l.x, l.y), {
-        pane: admin ? 'markerPane' : 'mapLabels', draggable: admin && !S.mode, keyboard: false, interactive: admin, zIndexOffset: -500,
+        pane: admin && !S.live ? 'markerPane' : 'mapLabels', draggable: admin && !S.mode && !S.live, keyboard: false, interactive: admin && !S.live, zIndexOffset: -500,
         icon: L.divIcon({ className: 'map-lbl', html: `<div style="color:${esc(paintColor(l.color))};opacity:${l.opacity};font-size:${Math.round(l.size * k)}px">${esc(l.text)}</div>`, iconSize: [0, 0] })
       });
       if (admin) {
@@ -518,13 +518,14 @@
     const admin = store.canWrite();
     if (S.f.places) places().forEach(p => {
       const m = L.marker(toLL(p.x, p.y), {
-        pane: 'placesPane', draggable: admin && !S.mode, title: p.name,
+        pane: 'placesPane', draggable: admin && !S.mode && !S.live, title: p.name,
         icon: L.divIcon({ className: 'mk-wrap', html: `<div class="mk mk--place${p.id === S.placeId ? ' is-sel' : ''}"><span class="mk__icon">${iconOf(p, 'building')}</span><span class="mk__label">${esc(p.name)}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 13] })
       });
-      m.on('click', () => { if (!S.mode) selectPlace(p.id); });
+      m.on('click', () => { if (S.live) { L.popup({ className: 'lv-pop' }).setLatLng(m.getLatLng()).setContent(`<div class="lvm"><div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(PLACE_TYPES[p.type] || '')} · ${esc(lvWhere(p.x, p.y))}</div></div>`).openOn(map); return; } if (!S.mode) selectPlace(p.id); });
       m.on('dragend', async () => { const { x, y } = fromLL(m.getLatLng()); const q = places().find(z => z.id === p.id); Object.assign(q, { x, y }); await commit('Объект перемещён'); });
       m.addTo(placesLayer); markerById.set('place:' + p.id, m);
     });
+    if (S.live) { $('#phase').hidden = true; const lg = liveGame(); if (lg) renderLivePoints(lg); lvRenderMarks(); return; }
     const g = curGame();
     $('#phase').hidden = !g || !g.points.length || isMedia(g);
     syncPhaseButtons();
@@ -1786,7 +1787,8 @@
 
   function openDialog({ title, body, submit = 'Сохранить', onSubmit, onDelete, deleteText, onOpen }) {
     if (S.mode) { stopMode(); renderMap(); }
-    const f = $('#dlgForm');
+    // каждый раз свежая форма: обработчики прошлых окон не должны срабатывать в новом
+    const f0 = $('#dlgForm'), f = f0.cloneNode(false); f0.replaceWith(f);
     f.innerHTML = `<header class="dlg__head"><h2>${esc(title)}</h2><button type="button" class="iconbtn" data-close aria-label="Закрыть">✕</button></header>
       <div class="dlg__body">${body}</div>
       <footer class="dlg__foot">${onDelete ? `<button type="button" class="btn danger" data-del>${esc(deleteText || 'Удалить')}</button>` : ''}<span class="sp"></span>
@@ -2669,6 +2671,7 @@
   mi('#admEditScenario', () => curScenario() && openScenarioForm(curScenario()));
   mi('#admEditGame', () => curGame() && openGameForm(curGame()));
   $('#admSettings').onclick = () => { closeMenu(); openSettings(); };
+  $('#admLive').onclick = () => { closeMenu(); openLiveStart(); };
   $('#admHero').onclick = () => { closeMenu(); openHeroForm(null); };
   $('#admPass').onclick = () => { closeMenu(); openPassForm(); };
   mi('#admExport', exportJson);
@@ -2703,6 +2706,426 @@
   });
 
   /* ================================================================
+     ЛАЙФ-КАРТА: живая карта админов во время игры.
+     Точки игры (можно двигать и менять владельца, есть замок), метки
+     «я тут», «иду сюда», «приказ», «противник», «медик». Всё уходит в базу
+     (supabase/live.sql) и раз в несколько секунд подтягивается у всех.
+     Зрители открывают ссылку ?live=… — только смотрят.
+     ================================================================ */
+  const LV_ORDERS = ['Штурм', 'Держать', 'Отход', 'Сбор', 'Ждать'];
+  const LV_ENEMY_TTL = 10 * 60e3, LV_STALE = 3 * 60e3, LV_OLD = 10 * 60e3, LV_POLL = 3000, LV_POLL_VIEW = 5000;
+  const LV_ICON = {
+    me: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    enemy: '<svg viewBox="0 0 24 24"><path d="M12 4C7 4 3 12 3 12s4 8 9 8 9-8 9-8-4-8-9-8z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>',
+    medic: '<svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" fill="currentColor"/></svg>',
+    order: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+    go: '<svg viewBox="0 0 24 24"><path d="M5 19L19 5M9 5h10v10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+  };
+  let liveLayer = null, lvTick = 0;
+  const LVrow = () => S.live && S.live.rows;
+  const lvNow = () => Date.now() + (S.live ? S.live.skew : 0);
+  const lvAge = r => Math.max(0, lvNow() - Date.parse(r.updated_at));
+  const lvAgo = ms => ms < 45e3 ? 'сейчас' : ms < 3600e3 ? Math.round(ms / 60e3) + ' мин' : Math.floor(ms / 3600e3) + ' ч ' + Math.round(ms % 3600e3 / 60e3) + ' мин';
+  const lvDevice = () => { let d = ls.get('pm-dev', ''); if (!d) { d = Store.uid(); ls.set('pm-dev', d); } return d; };
+  const lvMeKey = () => lvDevice();   // «я тут» — одна метка на телефон: даже под общим входом двое админов не затрут друг друга
+  const lvWhere = (x, y) => { const { sq, snail, out } = squareOf(x, y); return out ? 'вне сетки' : `${sq}-${snail}`; };
+  const lvMeters = (a, b) => Math.hypot((a.x - b.x) * W, (a.y - b.y) * H) * mpp();
+  /** Экран → доли подложки и обратно по привязке к местности (для GPS). */
+  function geoToXY(lat, lng) {
+    if (!relief || !relief.bounds) return null;
+    const b = relief.bounds; return { x: (lng - b.nw[1]) / (b.se[1] - b.nw[1]), y: (lat - b.nw[0]) / (b.se[0] - b.nw[0]) };
+  }
+
+  /** Окно «Лайф-карта»: какая игра и под каким позывным. */
+  function openLiveStart() {
+    const d = D(), games = d.games.filter(g => !isMedia(g)).slice().sort((a, b) => b.date.localeCompare(a.date));
+    if (!games.length) { toast('Сначала создайте игру с картой', 'err'); return; }
+    const near = games.filter(g => g.date >= today()).pop();
+    const def = (curGame() && !isMedia(curGame()) && curGame()) || near || games[0];
+    const name = ls.get('pm-live-name', '') || (store.live.who() && store.live.who() !== 'local' ? store.live.who().split('@')[0] : '');
+    openDialog({
+      title: 'Лайф-карта', submit: 'Открыть',
+      body: fld('Игра', `<select name="game">${games.map(g => { const sc = scById(g.scenarioId); return `<option value="${esc(g.id)}" ${g.id === def.id ? 'selected' : ''}>${esc(fmtDate(g.date))} — ${esc(g.title)}${sc ? ' · ' + esc(sc.title) : ''}</option>`; }).join('')}</select>`) +
+        fld('Ваш позывной на карте', `<input name="name" maxlength="24" required value="${esc(name)}" placeholder="Кэп" autocomplete="nickname">`, 'Его видят другие админы и те, с кем вы поделитесь ссылкой.') +
+        `<div class="note">Живая карта для админов во время игры. Точки игры подтягиваются сами, их можно двигать и менять владельца — опубликованная карта игры от этого не меняется, пока вы сами не нажмёте «Перенести итог в игру».<br><br>
+          <b>Двойное нажатие</b> по карте — «я тут». <b>Долгое нажатие</b> (или правая кнопка мыши) — меню: иду сюда, приказ, противник, медик.
+          ${store.live.shared ? '' : '<br><br><b style="color:var(--amber)">Сайт работает без базы:</b> метки видны только в этом браузере. Для работы вдвоём с разных телефонов нужна база Supabase и файл supabase/live.sql.'}</div>`,
+      onSubmit: async fd => { ls.set('pm-live-name', fd.get('name').trim()); enterLive({ game: fd.get('game') }); }
+    });
+  }
+
+  function enterLive({ game, token }) {
+    if (S.live) exitLive(true);
+    stopMode(); stopPlay && S.play && stopPlay(true);
+    const viewer = !!token;
+    let queue = []; try { queue = viewer ? [] : JSON.parse(ls.get('pm-live-q', '[]')) || []; } catch (e) { queue = []; }
+    S.live = { game: game || null, viewer, token: token || '', rows: new Map(), since: null, skew: 0, lockAll: true, queue, online: null, lastOk: 0, timer: 0, gps: null, err: '', busy: false };
+    document.body.classList.add('live-on'); app.classList.add('live');
+    if (game) lvSelectGame(game);
+    if (!liveLayer) { map.createPane('live').style.zIndex = 640; liveLayer = L.layerGroup().addTo(map); } else liveLayer.addTo(map);
+    map.doubleClickZoom.disable();
+    lvUi(); setTimeout(() => { map.invalidateSize(); const b = D().border; if (b.length >= 3) map.fitBounds(L.latLngBounds(polyLL(b)), { paddingTopLeft: [10, 60], paddingBottomRight: [10, 70] }); else fitAll(); }, 30);   // сразу на полигон, без пустых краёв
+    lvPoll(); lvSchedule();
+    clearInterval(lvTick); lvTick = setInterval(() => { if (S.live) { lvRenderMarks(); lvStatus(); } }, 15000);
+    document.addEventListener('visibilitychange', lvVis);
+  }
+  function exitLive(silent) {
+    const L_ = S.live; if (!L_) return;
+    clearTimeout(L_.timer); clearInterval(lvTick); lvGpsStop();
+    document.removeEventListener('visibilitychange', lvVis);
+    S.live = null; map.closePopup();
+    document.body.classList.remove('live-on'); app.classList.remove('live');
+    const ui = $('#liveUi'); if (ui) ui.remove();
+    if (liveLayer) liveLayer.clearLayers();
+    map.doubleClickZoom.enable();
+    if (L_.viewer) { const u = new URL(location.href); u.searchParams.delete('live'); history.replaceState(null, '', u.pathname + u.search + location.hash); }
+    setTimeout(() => map.invalidateSize(), 30);
+    if (!silent) refresh();
+  }
+  const lvVis = () => { if (S.live && !document.hidden) { lvPoll(); lvSchedule(); } };
+  function lvSelectGame(id) {
+    const g = D().games.find(x => x.id === id); if (!g) return false;
+    S.live.game = id; S.phase = 'after'; S.pointId = null; S.placeId = null;
+    selectScenario(g.scenarioId, g.id); lvUiSync();
+    return true;
+  }
+  const liveGame = () => S.live && D().games.find(g => g.id === S.live.game) || null;
+
+  /* ---------- обмен с базой ---------- */
+  function lvSchedule() {
+    const L_ = S.live; if (!L_) return; clearTimeout(L_.timer);
+    L_.timer = setTimeout(async () => { await lvPoll(); lvSchedule(); }, document.hidden ? 15000 : L_.viewer ? LV_POLL_VIEW : LV_POLL);
+  }
+  async function lvPoll() {
+    const L_ = S.live; if (!L_ || L_.busy) return; L_.busy = true;
+    try {
+      await lvFlush();
+      const since = L_.since ? new Date(Date.parse(L_.since) - 5000).toISOString() : null;   // небольшое перекрытие — ничего не теряем
+      const r = L_.viewer ? await store.live.view(L_.token, since) : await store.live.pull(L_.game, since);
+      if (S.live !== L_) return;
+      if (L_.viewer && r.game && r.game !== L_.game) { if (!lvSelectGame(r.game)) { L_.err = 'Игра по этой ссылке не найдена на сайте'; } }
+      L_.skew = Date.parse(r.now) - Date.now();
+      let changedPts = false;
+      (r.rows || []).forEach(row => {
+        const cur = L_.rows.get(row.id);
+        if (cur && cur.pending) return;                          // свою неотправленную правку не затираем
+        if (cur && cur.updated_at > row.updated_at) return;
+        if (row.kind === 'pt') changedPts = true;
+        L_.rows.set(row.id, row);
+        if (!L_.since || row.updated_at > L_.since) L_.since = row.updated_at;
+      });
+      if (!L_.since) L_.since = r.now;
+      L_.online = true; L_.lastOk = Date.now(); L_.err = L_.err && /не найдена/.test(L_.err) ? L_.err : '';
+      if (changedPts || !L_.drawn) { L_.drawn = true; renderMap(); } else lvRenderMarks();
+    } catch (e) {
+      if (S.live !== L_) return;
+      L_.online = false;
+      const m = String(e.message || e);
+      if (/link_expired/.test(m)) { L_.err = 'Ссылка устарела или отключена — попросите новую'; clearTimeout(L_.timer); L_.dead = true; }
+      else if (/not_admin/.test(m)) L_.err = 'Вход истёк — войдите заново как админ';
+      else if (/live_(pull|put|view)|Could not find the function|404/.test(m)) L_.err = 'В базе нет таблиц лайф-карты — выполните supabase/live.sql в Supabase';
+      else L_.err = '';
+    } finally { L_.busy = false; if (S.live === L_) lvStatus(); }
+  }
+  async function lvFlush() {
+    const L_ = S.live; if (!L_ || L_.viewer) return;
+    while (L_.queue.length) {
+      const m = L_.queue[0];
+      const t = await store.live.put(m);                          // ошибка — остаёмся в очереди, отправим при следующей связи
+      L_.queue.shift(); ls.set('pm-live-q', JSON.stringify(L_.queue));
+      const row = L_.rows.get(m.id);
+      if (row && row.pending && row.qid === m.qid) { row.pending = false; delete row.qid; if (typeof t === 'string') row.updated_at = t; }
+    }
+  }
+  /** Поставить / изменить / снять метку: сразу на экране, в базу — как будет связь. */
+  function lvPut(kind, id, data, gone = false) {
+    const L_ = S.live; if (!L_ || L_.viewer) return;
+    const qid = Store.uid(), m = { id, game: L_.game, kind, data, gone, qid };
+    L_.queue = L_.queue.filter(q => q.id !== id); L_.queue.push(m); ls.set('pm-live-q', JSON.stringify(L_.queue));
+    L_.rows.set(id, { id, game_id: L_.game, kind, data, gone, author: store.live.who(), updated_at: new Date(lvNow()).toISOString(), pending: true, qid });
+    if (kind === 'pt') renderMap(); else lvRenderMarks();
+    lvStatus(); lvPoll();
+  }
+  const lvName = () => ls.get('pm-live-name', '') || 'Админ';
+  function lvPutMe(x, y, extra = {}) {
+    const key = lvMeKey(), here = { x, y };
+    lvPut('me', 'me:' + key, Object.assign({ x, y, name: lvName() }, extra));
+    const go = LVrow().get('go:' + key);                          // дошёл до цели — стрелка «иду сюда» гаснет
+    if (go && !go.gone && lvMeters(here, go.data) < 25) lvPut('go', go.id, go.data, true);
+  }
+
+  /* ---------- точки игры на живой карте ---------- */
+  /** Точки игры с правками лайф-карты (позиция, владелец, замок). */
+  function livePoints(g) {
+    return g.points.map(p => { const o = LVrow().get('pt:' + g.id + ':' + p.id), d = o && !o.gone ? o.data : null;
+      return Object.assign({}, p, { x: d && d.x != null ? d.x : p.x, y: d && d.y != null ? d.y : p.y, live: d && d.owner !== undefined ? d.owner : p.after, lock: !!(d && d.lock), edited: !!d }); });
+  }
+  function lvPtSave(g, p, patch) {
+    const id = 'pt:' + g.id + ':' + p.id, o = LVrow().get(id);
+    lvPut('pt', id, Object.assign({ x: p.x, y: p.y, owner: p.live, lock: p.lock, name: p.name }, o && !o.gone ? o.data : {}, patch));
+  }
+  function renderLivePoints(g) {
+    const L_ = S.live, can = !L_.viewer;
+    livePoints(g).forEach(p => {
+      const color = sideColor(p.live), o = g.points.find(q => q.id === p.id);   // зона едет вместе с точкой
+      if (S.f.areas && p.area.length >= 3) L.polygon(polyLL(p.area.map(([ax, ay]) => [ax + p.x - o.x, ay + p.y - o.y])),
+        { pane: 'areas', color, weight: 1.6, opacity: .9, fillColor: color, fillOpacity: .22, interactive: false }).addTo(areasLayer);
+      const html = markerHtml(p, color).replace('class="mk"', `class="mk${p.lock ? ' mk--lock' : ''}"`);
+      const m = L.marker(toLL(p.x, p.y), {
+        icon: L.divIcon({ className: 'mk-wrap', html, iconSize: [34, 34], iconAnchor: [17, 17] }),
+        draggable: can && !L_.lockAll && !p.lock, title: p.name, riseOnHover: true
+      });
+      m.on('click', () => lvPointMenu(g, p));
+      m.on('dragend', () => { const { x, y } = fromLL(m.getLatLng()); lvPtSave(g, p, { x, y }); });
+      m.addTo(markersLayer); markerById.set(p.id, m);
+    });
+  }
+  function lvPointMenu(g, p) {
+    const L_ = S.live, can = !L_.viewer;
+    const html = `<div class="lvm"><div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(lvWhere(p.x, p.y))} · сейчас: <b style="color:${sideColor(p.live)}">${esc(sideName(p.live))}</b></div>
+      ${can ? `<div class="lvm__row">${D().sides.map(s => `<button type="button" class="lvm__side${p.live === s.id ? ' on' : ''}" style="--c:${esc(s.color)}" data-own="${esc(s.id)}">${esc(s.name)}</button>`).join('')}<button type="button" class="lvm__side${!p.live ? ' on' : ''}" data-own="">Ничья</button></div>
+      <div class="lvm__row"><button type="button" class="lvm__b" data-plock>${p.lock ? '🔓 Открепить точку' : '🔒 Закрепить точку'}</button>${p.edited ? '<button type="button" class="lvm__b" data-preset>↺ Как в игре</button>' : ''}</div>
+      ${L_.lockAll ? '<div class="lvm__s">Двигать точки: снимите общий замок «🔒 Точки» внизу.</div>' : ''}` : ''}</div>`;
+    const pop = L.popup({ className: 'lv-pop', closeButton: true, autoPanPadding: [20, 70] }).setLatLng(toLL(p.x, p.y)).setContent(html).openOn(map);
+    const el = pop.getElement(); if (!el || !can) return;
+    el.onclick = e => {
+      const o = e.target.closest('[data-own]'); if (o) { lvPtSave(g, p, { owner: o.dataset.own }); map.closePopup(); toast(`${p.name}: ${sideName(o.dataset.own)}`); return; }
+      if (e.target.closest('[data-plock]')) { lvPtSave(g, p, { lock: !p.lock }); map.closePopup(); return; }
+      if (e.target.closest('[data-preset]')) { lvPut('pt', 'pt:' + g.id + ':' + p.id, { name: p.name }, true); map.closePopup(); }
+    };
+  }
+
+  /* ---------- метки ---------- */
+  function lvVisible(r) {
+    if (r.gone || r.kind === 'pt') return false;
+    if (r.kind === 'enemy' && lvAge(r) > LV_ENEMY_TTL) return false;
+    return true;
+  }
+  function lvRenderMarks() {
+    if (!S.live || !liveLayer) return;
+    liveLayer.clearLayers();
+    const rows = [...LVrow().values()].filter(lvVisible), meKey = 'me:' + lvMeKey(), can = !S.live.viewer;
+    const ico = (r, cls, inner, size = 30) => L.marker(toLL(r.data.x, r.data.y), { pane: 'live', keyboard: false, zIndexOffset: r.kind === 'me' ? 1000 : 0,
+      icon: L.divIcon({ className: 'lv-wrap', html: `<div class="lv ${cls}">${inner}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] }) });
+    rows.forEach(r => {
+      const d = r.data || {}, age = lvAge(r), ago = lvAgo(age); let m;
+      if (r.kind === 'me') {
+        const st = age > LV_OLD ? ' lv--old' : age > LV_STALE ? ' lv--stale' : '';
+        m = ico(r, 'lv--me' + st + (r.id === meKey ? ' lv--mine' : ''), `<i class="lv__dot"></i><span class="lv__lbl">${esc(d.name || 'Админ')} · ${ago}${d.gps ? ' · GPS' : ''}</span>`, 26);
+      } else if (r.kind === 'go') {
+        const me = LVrow().get(r.id.replace(/^go:/, 'me:'));
+        if (me && !me.gone) {
+          const a = [me.data.x * W, me.data.y * H], b = [d.x * W, d.y * H], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), len = 16 * Math.pow(2, Z - map.getZoom());
+          L.polyline([pxLL(a), pxLL([b[0] - len * .7 * Math.cos(ang), b[1] - len * .7 * Math.sin(ang)])], { pane: 'live', color: '#79b8ff', weight: 3, dashArray: '8 7', opacity: .95, interactive: false }).addTo(liveLayer);
+          L.polygon([pxLL(b), pxLL([b[0] - len * Math.cos(ang - .45), b[1] - len * Math.sin(ang - .45)]), pxLL([b[0] - len * Math.cos(ang + .45), b[1] - len * Math.sin(ang + .45)])], { pane: 'live', color: '#79b8ff', weight: 1, fillOpacity: .95, interactive: false }).addTo(liveLayer);
+        }
+        m = ico(r, 'lv--go', `<i class="lv__ring"></i><span class="lv__lbl">${esc(d.name || '')} → сюда</span>`, 22);
+      } else if (r.kind === 'order') {
+        m = ico(r, 'lv--order', `<span class="lv__chip" title="${esc(d.name || '')} · ${ago}">${LV_ICON.order}${esc(d.text || 'Приказ')}</span>`, 24);
+      } else if (r.kind === 'enemy') {
+        m = ico(r, 'lv--enemy' + (age > LV_ENEMY_TTL / 2 ? ' lv--stale' : ''), `<i class="lv__dia"></i><span class="lv__lbl lv__lbl--r">враг${d.count ? ' ×' + esc(d.count) : ''} · ${ago}</span>`, 24);
+      } else if (r.kind === 'medic') {
+        m = ico(r, 'lv--medic', `<i class="lv__med">${LV_ICON.medic}</i><span class="lv__lbl">медик · ${ago}</span>`, 26);
+      }
+      if (!m) return;
+      m.on('click', () => lvMarkMenu(r));
+      m.addTo(liveLayer);
+    });
+  }
+  const LV_WHAT = { me: 'Я тут', go: 'Иду сюда', order: 'Приказ', enemy: 'Противник', medic: 'Нужен медик' };
+  function lvMarkMenu(r) {
+    const d = r.data || {}, can = !S.live.viewer;
+    const html = `<div class="lvm"><div class="lvm__t">${LV_WHAT[r.kind] || 'Метка'}${r.kind === 'order' ? ': ' + esc(d.text || '') : r.kind === 'enemy' && d.count ? ' ×' + esc(d.count) : ''}</div>
+      <div class="lvm__s">${esc(d.name || '')}${d.name ? ' · ' : ''}${esc(lvWhere(d.x, d.y))} · ${lvAgo(lvAge(r))}${r.pending ? ' · <b style="color:var(--amber)">ещё не отправлено</b>' : ''}</div>
+      ${can ? `<div class="lvm__row"><button type="button" class="lvm__b lvm__b--del" data-rm>Снять метку</button></div>` : ''}</div>`;
+    const pop = L.popup({ className: 'lv-pop', autoPanPadding: [20, 70] }).setLatLng(toLL(d.x, d.y)).setContent(html).openOn(map);
+    const el = pop.getElement(); if (el && can) el.onclick = e => { if (e.target.closest('[data-rm]')) { lvPut(r.kind, r.id, r.data, true); map.closePopup(); } };
+  }
+  /** Меню по долгому нажатию: иду сюда / приказ / противник / медик. */
+  function lvAddMenu(x, y) {
+    if (!S.live || S.live.viewer) return;
+    const ll = toLL(x, y), key = lvMeKey(), meRow = LVrow().get('me:' + key), hasMe = meRow && !meRow.gone;
+    const main = `<div class="lvm"><div class="lvm__s">${esc(lvWhere(x, y))}</div><div class="lvm__grid">
+      <button type="button" data-a="me">${LV_ICON.me}Я тут</button>
+      <button type="button" data-a="go" ${hasMe ? '' : 'title="Сначала отметьте, где вы"'}>${LV_ICON.go}Иду сюда</button>
+      <button type="button" data-a="order">${LV_ICON.order}Приказ</button>
+      <button type="button" data-a="enemy" class="r">${LV_ICON.enemy}Противник</button>
+      <button type="button" data-a="medic">${LV_ICON.medic}Медик</button></div></div>`;
+    const pop = L.popup({ className: 'lv-pop', autoPanPadding: [20, 80], minWidth: 210 }).setLatLng(ll).setContent(main).openOn(map);
+    const el = pop.getElement(); if (!el) return;
+    el.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const a = b.dataset.a, base = { x, y, name: lvName() };
+      if (a === 'me') { lvPutMe(x, y); map.closePopup(); return; }
+      if (a === 'go') { if (!hasMe) { toast('Сначала отметьте, где вы: двойное нажатие по карте или «Я тут»', 'err'); return; } lvPut('go', 'go:' + key, base); map.closePopup(); return; }
+      if (a === 'medic') { lvPut('medic', 'md:' + Store.uid(), base); map.closePopup(); return; }
+      if (a === 'order') { pop.setContent(`<div class="lvm"><div class="lvm__t">Приказ</div><div class="lvm__row">${LV_ORDERS.map(o => `<button type="button" class="lvm__b" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+          <div class="lvm__row"><input class="lvm__in" maxlength="30" placeholder="свой текст"><button type="button" class="lvm__b" data-o="">OK</button></div></div>`); return; }
+      if (a === 'enemy') { pop.setContent(`<div class="lvm"><div class="lvm__t">Противник — сколько?</div><div class="lvm__row">${['?', '1', '2', '3', '5', '10+'].map(n => `<button type="button" class="lvm__b" data-n="${n}">${n}</button>`).join('')}</div><div class="lvm__s">Метка погаснет сама через 10 минут.</div></div>`); return; }
+      if (b.dataset.o !== undefined) { const t = b.dataset.o || (el.querySelector('.lvm__in') || {}).value || ''; if (!t.trim()) { toast('Впишите текст приказа', 'err'); return; } lvPut('order', 'or:' + Store.uid(), Object.assign(base, { text: t.trim().slice(0, 30) })); map.closePopup(); return; }
+      if (b.dataset.n !== undefined) { lvPut('enemy', 'en:' + Store.uid(), Object.assign(base, { count: b.dataset.n === '?' ? '' : b.dataset.n })); map.closePopup(); }
+    };
+  }
+
+  /* ---------- жесты: двойное нажатие — «я тут», долгое — меню ---------- */
+  let lvTap = null, lvHold = null, lvHoldAt = 0;
+  function lvGestures() {
+    map.on('click', e => {
+      if (!S.live || S.live.viewer || S.mode) return;
+      const p = e.containerPoint, t = Date.now();
+      if (lvTap && t - lvTap.t < 400 && p.distanceTo(lvTap.p) < 30) { lvTap = null; const { x, y } = fromLL(e.latlng); map.closePopup(); lvPutMe(x, y); return; }
+      lvTap = { t, p };
+    });
+    map.on('contextmenu', e => { if (!S.live || Date.now() - lvHoldAt < 900) return; const { x, y } = fromLL(e.latlng); lvAddMenu(x, y); });
+    const el = map.getContainer();
+    el.addEventListener('pointerdown', e => {
+      if (!S.live || S.live.viewer || e.pointerType === 'mouse' || e.target.closest('.leaflet-marker-icon, .leaflet-popup')) return;
+      const at = { x: e.clientX, y: e.clientY };
+      clearTimeout(lvHold && lvHold.t);
+      lvHold = { at, t: setTimeout(() => { lvHoldAt = Date.now(); const r = el.getBoundingClientRect(); const { x, y } = fromLL(map.containerPointToLatLng([at.x - r.left, at.y - r.top])); if (navigator.vibrate) navigator.vibrate(30); lvAddMenu(x, y); }, 550) };
+    });
+    const cancel = e => { if (lvHold && (e.type !== 'pointermove' || Math.hypot(e.clientX - lvHold.at.x, e.clientY - lvHold.at.y) > 10)) { clearTimeout(lvHold.t); lvHold = null; } };
+    ['pointermove', 'pointerup', 'pointercancel'].forEach(t => el.addEventListener(t, cancel));
+    map.on('zoomend', () => { if (S.live) lvRenderMarks(); });
+  }
+
+  /* ---------- GPS ---------- */
+  function lvGpsFix(once) {
+    if (!navigator.geolocation) { toast('Телефон не даёт координаты', 'err'); return; }
+    if (!relief || !relief.bounds) { toast('Подложка не привязана к местности — GPS недоступен', 'err'); return; }
+    const ok = pos => {
+      const c = pos.coords, p = geoToXY(c.latitude, c.longitude); if (!S.live || !p) return;
+      if (p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.05) {
+        const g = geoCenter(), km = g ? (Math.hypot((c.latitude - g[0]) * 111.32, (c.longitude - g[1]) * 111.32 * Math.cos(g[0] * Math.PI / 180))).toFixed(1).replace('.', ',') : '?';
+        toast(`Вы вне полигона — до центра ${km} км`, 'err'); return;
+      }
+      const G = S.live.gps, now = Date.now();
+      if (!once && G && G.last && now - G.last.t < 20000 && lvMeters(G.last, p) < 8) return;   // не дёргаем базу без нужды
+      if (G) G.last = { t: now, x: p.x, y: p.y };
+      lvPutMe(clamp01(p.x), clamp01(p.y), { gps: true, acc: Math.round(c.accuracy) });
+      if (once) { map.setView(toLL(p.x, p.y), Math.max(map.getZoom(), map.getMinZoom() + 2)); toast(`Отмечено по GPS, точность ~${Math.round(c.accuracy)} м`); }
+    };
+    const bad = e => toast(e.code === 1 ? 'Разрешите сайту доступ к геопозиции в настройках браузера' : 'Не удалось получить координаты — попробуйте на открытом месте', 'err');
+    if (once) navigator.geolocation.getCurrentPosition(ok, bad, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+    else return navigator.geolocation.watchPosition(ok, e => { bad(e); lvGpsStop(); lvUiSync(); }, { enableHighAccuracy: true, maximumAge: 10000 });
+  }
+  function lvGpsToggle() {
+    const L_ = S.live; if (!L_) return;
+    if (L_.gps) { lvGpsStop(); toast('Слежение по GPS выключено'); }
+    else { L_.gps = { watch: null, last: null }; L_.gps.watch = lvGpsFix(false); if (L_.gps && L_.gps.watch == null) L_.gps = null; else toast('GPS: ваша метка обновляется сама, пока открыт сайт'); }
+    lvUiSync();
+  }
+  function lvGpsStop() { const L_ = S.live; if (L_ && L_.gps) { if (L_.gps.watch != null) navigator.geolocation.clearWatch(L_.gps.watch); L_.gps = null; } }
+
+  /* ---------- интерфейс поверх карты ---------- */
+  function lvUi() {
+    const old = $('#liveUi'); if (old) old.remove();
+    const v = S.live.viewer, box = document.createElement('div'); box.id = 'liveUi'; box.className = 'lvui';
+    box.innerHTML = `<div class="lvui__top"><span class="lvui__st" id="lvSt"></span><div class="lvui__ttl"><b>${v ? 'Лайф-карта · просмотр' : 'Лайф-карта'}</b><span id="lvGame"></span></div>
+        <button type="button" class="lvui__x" id="lvExit" title="${v ? 'Перейти на сайт' : 'Выйти из лайф-карты'}">${v ? 'На сайт' : '✕'}</button></div>
+      <div class="lvui__err" id="lvErr" hidden></div>
+      ${v ? '' : `<div class="lvui__hint" id="lvHint">2× нажатие — я тут · удержать — метки</div>
+      <div class="lvui__bot">
+        <button type="button" id="lvMe"><b>◎</b>Я тут</button>
+        <button type="button" id="lvGps"><b>⌖</b><span>GPS</span></button>
+        <button type="button" id="lvLock"><b>🔒</b><span>Точки</span></button>
+        <button type="button" id="lvMore"><b>☰</b>Ещё</button></div>`}`;
+    $('.stage').appendChild(box);
+    $('#lvExit').onclick = () => exitLive();
+    if (!v) {
+      $('#lvMe').onclick = () => lvGpsFix(true);
+      $('#lvGps').onclick = lvGpsToggle;
+      $('#lvLock').onclick = () => { S.live.lockAll = !S.live.lockAll; lvUiSync(); renderMap(); toast(S.live.lockAll ? 'Точки закреплены — случайно не сдвинуть' : 'Точки можно перетаскивать'); };
+      $('#lvMore').onclick = lvMoreMenu;
+      setTimeout(() => { const h = $('#lvHint'); if (h) h.classList.add('fade'); }, 8000);
+    }
+    lvUiSync(); lvStatus();
+  }
+  function lvUiSync() {
+    const L_ = S.live; if (!L_) return; const g = liveGame();
+    const ge = $('#lvGame'); if (ge) ge.textContent = g ? `${fmtDate(g.date)} · ${g.title}` : '';
+    const lk = $('#lvLock'); if (lk) { lk.classList.toggle('on', !L_.lockAll); lk.querySelector('b').textContent = L_.lockAll ? '🔒' : '🔓'; }
+    const gp = $('#lvGps'); if (gp) { gp.classList.toggle('on', !!L_.gps); gp.querySelector('span').textContent = L_.gps ? 'GPS вкл' : 'GPS'; }
+  }
+  function lvStatus() {
+    const L_ = S.live, st = $('#lvSt'); if (!L_ || !st) return;
+    const q = L_.queue.length, ok = L_.online && Date.now() - L_.lastOk < 20000;
+    st.className = 'lvui__st ' + (L_.online == null ? 'wait' : ok ? (q ? 'q' : 'ok') : 'off');
+    st.title = L_.online == null ? 'Подключение…' : ok ? (q ? `Отправляю: ${q}` : 'На связи') : 'Нет связи' + (q ? ` — в очереди ${q}` : '');
+    st.textContent = L_.online == null ? '…' : ok ? (q ? '↑' + q : '') : (q ? '✕ ' + q : '✕');
+    const er = $('#lvErr'); if (er) { er.hidden = !L_.err && ok !== false; er.textContent = L_.err || (L_.online === false ? 'Нет связи — метки отправятся, когда появится сеть' : ''); if (!L_.err && L_.online !== false) er.hidden = true; }
+  }
+  function lvMoreMenu() {
+    const L_ = S.live, g = liveGame(); if (!g) return;
+    const edits = livePoints(g).filter(p => p.edited).length, marks = [...L_.rows.values()].filter(lvVisible).length;
+    openDialog({
+      title: 'Лайф-карта',
+      body: `<div class="lvmore">
+        <button type="button" class="btn" data-lv="share">🔗 Поделиться ссылкой (только просмотр)</button>
+        <button type="button" class="btn" data-lv="log">☰ Журнал игры</button>
+        <button type="button" class="btn" data-lv="name">✎ Позывной: ${esc(lvName())}</button>
+        <button type="button" class="btn" data-lv="game">⇄ Другая игра</button>
+        <button type="button" class="btn" data-lv="apply" ${edits ? '' : 'disabled'}>⤓ Перенести итог в игру${edits ? ` (${edits} ${plural(edits, 'точка', 'точки', 'точек')})` : ''}</button>
+        <button type="button" class="btn danger" data-lv="clear" ${marks ? '' : 'disabled'}>Убрать все метки${marks ? ` (${marks})` : ''}</button></div>
+        <small class="hint">Точки, которые вы двигали или перекрасили, остаются на лайф-карте. «Перенести итог в игру» запишет их владельцев в «после игры» — это увидят посетители сайта.</small>`,
+      onOpen: f => f.addEventListener('click', async e => {
+        const b = e.target.closest('[data-lv]'); if (!b) return; const a = b.dataset.lv;
+        if (a === 'share') { $('#dlg').close(); lvShareForm(); }
+        if (a === 'log') { $('#dlg').close(); lvJournal(); }
+        if (a === 'name') { const n = prompt('Позывной на карте', lvName()); if (n && n.trim()) { ls.set('pm-live-name', n.trim().slice(0, 24)); const me = LVrow().get('me:' + lvMeKey()); if (me && !me.gone) lvPut('me', me.id, Object.assign({}, me.data, { name: n.trim().slice(0, 24) })); $('#dlg').close(); } }
+        if (a === 'game') { $('#dlg').close(); exitLive(true); openLiveStart(); }
+        if (a === 'apply') { if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Точно? Посетители увидят это как итог игры'; return; } $('#dlg').close(); await lvApply(); }
+        if (a === 'clear') { if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Точно убрать все метки? Нажмите ещё раз'; return; }
+          try { await store.live.clear(L_.game); LVrow().forEach(r => { if (r.kind !== 'pt') r.gone = true; }); lvRenderMarks(); toast('Метки убраны'); } catch (err) { toast('Нет связи — попробуйте позже', 'err'); } $('#dlg').close(); }
+      })
+    });
+  }
+  async function lvApply() {
+    const g = D().games.find(x => x.id === S.live.game); if (!g) return;
+    const lp = livePoints(g); let n = 0;
+    lp.filter(p => p.edited).forEach(p => { const q = g.points.find(z => z.id === p.id); if (!q) return; q.x = p.x; q.y = p.y; q.after = p.live || ''; if (isFuture(g)) q.before = q.after; n++; });
+    await commit(`Итог перенесён в игру: ${n} ${plural(n, 'точка', 'точки', 'точек')}`);
+  }
+  function lvShareForm() {
+    const L_ = S.live, base = location.origin + location.pathname;
+    openDialog({
+      title: 'Поделиться лайф-картой',
+      body: `<div class="note">По ссылке видно точки и метки этой игры: кто где, приказы, противник. Двигать и ставить метки по ссылке нельзя. Ссылка перестанет работать через выбранное время или когда вы её отключите.${store.live.shared ? '' : '<br><b style="color:var(--amber)">Без базы ссылка откроется только в этом браузере.</b>'}</div>
+        <div class="row2">${fld('Ссылка работает', `<select name="h"><option value="3">3 часа</option><option value="6" selected>6 часов</option><option value="12">12 часов</option><option value="24">сутки</option><option value="72">3 дня</option></select>`)}<div class="fld"><span>&nbsp;</span><button type="button" class="btn primary" id="lvMk">Создать ссылку</button></div></div>
+        <div class="lvshare" id="lvLink" hidden><input readonly id="lvUrl"><button type="button" class="btn" id="lvCopy">Копировать</button></div>
+        <button type="button" class="link danger" id="lvStop">Отключить все ссылки на эту игру</button>`,
+      onOpen: f => {
+        f.querySelector('#lvMk').onclick = async () => {
+          try { const tk = await store.live.shareNew(L_.game, +f.querySelector('[name=h]').value); const u = `${base}?live=${tk}`; f.querySelector('#lvUrl').value = u; f.querySelector('#lvLink').hidden = false; f.querySelector('#lvUrl').select(); }
+          catch (e) { toast(/function|404/.test(e.message) ? 'Выполните supabase/live.sql в Supabase' : 'Нет связи — попробуйте ещё раз', 'err'); }
+        };
+        f.querySelector('#lvCopy').onclick = async () => { const i = f.querySelector('#lvUrl'); try { await navigator.clipboard.writeText(i.value); toast('Ссылка скопирована'); } catch (e) { i.select(); document.execCommand('copy'); toast('Ссылка скопирована'); } };
+        f.querySelector('#lvStop').onclick = async () => { try { await store.live.shareStop(L_.game); toast('Все ссылки на эту игру отключены'); $('#dlg').close(); } catch (e) { toast('Нет связи — попробуйте ещё раз', 'err'); } };
+      }
+    });
+  }
+  async function lvJournal() {
+    const L_ = S.live; let list = [];
+    try { list = await store.live.journal(L_.game, 300); } catch (e) { toast('Нет связи — журнал не загрузился', 'err'); return; }
+    const t = s => { const d = new Date(s); return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
+    const line = l => { const d = l.data || {}, w = d.x != null ? lvWhere(d.x, d.y) : '', who = d.name || (l.author || '').split('@')[0] || 'админ';
+      if (l.kind === 'pt') return l.gone ? `точка «${esc(d.name || '')}» — как в игре` : `точка «${esc(d.name || '')}»: ${esc(sideName(d.owner))}${d.lock ? ', закреплена' : ''} · ${esc(w)}`;
+      const what = { me: d.gps ? 'я тут (GPS)' : 'я тут', go: 'иду сюда', order: `приказ «${esc(d.text || '')}»`, enemy: `противник${d.count ? ' ×' + esc(d.count) : ''}`, medic: 'нужен медик' }[l.kind] || l.kind;
+      return `<b>${esc(who)}</b>: ${l.gone ? 'снял — ' : ''}${what} · ${esc(w)}`; };
+    openDialog({
+      title: 'Журнал игры',
+      body: list.length ? `<ol class="lvlog">${list.map(l => `<li><time>${t(l.at)}</time><span>${line(l)}</span></li>`).join('')}</ol>` : '<p class="hint">Пока пусто — здесь появится каждая метка со временем.</p>'
+    });
+  }
+
+  /** Вход по ссылке ?live=… — только просмотр. */
+  function lvFromUrl() {
+    const tk = new URLSearchParams(location.search).get('live');
+    if (tk && /^[\w-]{8,80}$/.test(tk)) { enterLive({ token: tk }); return true; }
+    return false;
+  }
+
+  /* ================================================================
      ЗАПУСК
      ================================================================ */
   async function reload() {
@@ -2719,6 +3142,7 @@
     setFiltersOpen(ls.get('pm-filters-open', !isMobile()));
     store = await Store.create(C);
     await initMap();
+    lvGestures();
     if (store.mode === 'supabase') await store.signIn(); // вход, сохранённый в этом браузере
     else if (ls.get('pm-admin', false) === adminToken()) await store.signIn(); else ls.set('pm-admin', false); // сменили пароль — старый вход недействителен
     await store.load();
@@ -2733,11 +3157,12 @@
     if (hpnt && curGame()?.points.some(p => p.id === hpnt)) { S.pointId = hpnt; refresh(); }
     if (hpl && places().some(p => p.id === hpl)) { S.placeId = hpl; refresh(); }
     if (hp.get('t') === 'tour' && S.scId) { S.tab = 'tour'; if (hp.get('tr')) S.tourId = hp.get('tr'); refresh(); }
-    if (wantsAdmin() && !store.canWrite()) openLogin();
+    if (lvFromUrl()) { /* зритель по ссылке — сразу на лайф-карту */ }
+    else if (wantsAdmin() && !store.canWrite()) openLogin();
     else if (store.mode === 'supabase' && store.canWrite() && store.isEmpty()) await afterSbLogin();
     // другой админ мог сохранить свою версию, пока вкладка была в фоне — подтягиваем
     if (store.mode === 'supabase') addEventListener('focus', async () => {
-      if (!store.canWrite() || $('#dlg').open || S.mode) return;
+      if (!store.canWrite() || $('#dlg').open || S.mode || S.live) return;
       try { const r = await store.remoteVersion(); if (r && r.version > store.meta().version) { await reload(); toast(`Данные обновил ${r.updated_by || 'другой админ'} — показана свежая версия`); } } catch (e) {}
     });
   } catch (e) {
