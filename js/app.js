@@ -521,7 +521,7 @@
         pane: 'placesPane', draggable: admin && !S.mode && !S.live, title: p.name,
         icon: L.divIcon({ className: 'mk-wrap', html: `<div class="mk mk--place${p.id === S.placeId ? ' is-sel' : ''}"><span class="mk__icon">${iconOf(p, 'building')}</span><span class="mk__label">${esc(p.name)}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 13] })
       });
-      m.on('click', () => { if (S.live) { L.popup({ className: 'lv-pop' }).setLatLng(m.getLatLng()).setContent(`<div class="lvm"><div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(PLACE_TYPES[p.type] || '')} · ${esc(lvWhere(p.x, p.y))}</div></div>`).openOn(map); return; } if (!S.mode) selectPlace(p.id); });
+      m.on('click', () => { if (S.live) { lvSheet(`<div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(PLACE_TYPES[p.type] || '')} · ${esc(lvWhere(p.x, p.y))}</div>`, p); return; } if (!S.mode) selectPlace(p.id); });
       m.on('dragend', async () => { const { x, y } = fromLL(m.getLatLng()); const q = places().find(z => z.id === p.id); Object.assign(q, { x, y }); await commit('Объект перемещён'); });
       m.addTo(placesLayer); markerById.set('place:' + p.id, m);
     });
@@ -2763,7 +2763,9 @@
     document.body.classList.add('live-on'); app.classList.add('live');
     if (game) lvSelectGame(game);
     if (!liveLayer) { map.createPane('live').style.zIndex = 640; liveLayer = L.layerGroup().addTo(map); } else liveLayer.addTo(map);
-    map.doubleClickZoom.disable();
+    map.doubleClickZoom.disable(); map.options.inertia = false;   // карта не «уезжает» после свайпа
+    if (!viewer) lvFsOn();
+    lvWake(); lvMapLock(!!ls.get('pm-live-maplock', false), true);
     lvUi(); setTimeout(() => { map.invalidateSize(); const b = D().border; if (b.length >= 3) map.fitBounds(L.latLngBounds(polyLL(b)), { paddingTopLeft: [10, 60], paddingBottomRight: [10, 70] }); else fitAll(); }, 30);   // сразу на полигон, без пустых краёв
     lvPoll(); lvSchedule();
     clearInterval(lvTick); lvTick = setInterval(() => { if (S.live) { lvRenderMarks(); lvStatus(); } }, 15000);
@@ -2773,16 +2775,49 @@
     const L_ = S.live; if (!L_) return;
     clearTimeout(L_.timer); clearInterval(lvTick); lvGpsStop();
     document.removeEventListener('visibilitychange', lvVis);
+    lvSheetClose(); lvDrawStop(); lvMapLock(false, true);
     S.live = null; map.closePopup();
+    if (lvWakeLock) { lvWakeLock.release().catch(() => {}); lvWakeLock = null; }
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     document.body.classList.remove('live-on'); app.classList.remove('live');
     const ui = $('#liveUi'); if (ui) ui.remove();
     if (liveLayer) liveLayer.clearLayers();
-    map.doubleClickZoom.enable();
+    map.doubleClickZoom.enable(); map.options.inertia = true;
     if (L_.viewer) { const u = new URL(location.href); u.searchParams.delete('live'); history.replaceState(null, '', u.pathname + u.search + location.hash); }
     setTimeout(() => map.invalidateSize(), 30);
     if (!silent) refresh();
   }
-  const lvVis = () => { if (S.live && !document.hidden) { lvPoll(); lvSchedule(); } };
+  const lvVis = () => { if (S.live && !document.hidden) { lvPoll(); lvSchedule(); lvWake(); } };
+
+  /* ---------- полный экран, экран не гаснет, карта на замке ---------- */
+  const lvFsCan = () => !!(document.documentElement.requestFullscreen && document.fullscreenEnabled);
+  const lvStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+  function lvFsOn() {
+    if (!lvFsCan() || document.fullscreenElement) return;
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => { try { screen.orientation.lock('portrait').catch(() => {}); } catch (e) {} })
+      .catch(() => {});
+  }
+  function lvFsToggle() {
+    if (lvFsCan()) { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else lvFsOn(); return; }
+    // iPhone: браузер не даёт сайту полный экран — только как приложение с экрана «Домой»
+    openDialog({ title: 'Полный экран на iPhone', body: `<div class="note">Safari на iPhone не даёт сайтам убрать свою панель. Зато можно открыть сайт как приложение — без адресной строки:<br><br>
+      1. Нажмите <b>«Поделиться»</b> (квадрат со стрелкой вверх).<br>2. Выберите <b>«На экран „Домой“»</b> → «Добавить».<br>3. Открывайте сайт значком с экрана «Домой» и войдите как админ — дальше лайф-карта на весь экран.</div>` });
+  }
+  document.addEventListener('fullscreenchange', () => { if (map) setTimeout(() => map.invalidateSize(), 50); lvUiSync(); });
+  let lvWakeLock = null;
+  async function lvWake() {   // экран не гаснет, пока открыта лайф-карта
+    if (!S.live || !navigator.wakeLock || document.hidden || lvWakeLock) return;
+    try { lvWakeLock = await navigator.wakeLock.request('screen'); lvWakeLock.addEventListener('release', () => { lvWakeLock = null; }); } catch (e) { lvWakeLock = null; }
+  }
+  /** Замок карты: не сдвинуть и не приблизить пальцем (кнопки +/− работают, метки ставятся). */
+  function lvMapLock(on, quiet) {
+    const hs = [map.dragging, map.touchZoom, map.boxZoom, map.keyboard];
+    hs.forEach(h => h && (on ? h.disable() : h.enable()));
+    if (S.live) { S.live.mapLock = on; if (!quiet) { ls.set('pm-live-maplock', on); toast(on ? 'Карта закреплена — не сдвинется от случайного касания' : 'Карту снова можно двигать'); } }
+    app.classList.toggle('lv-maplock', !!on);
+    lvUiSync();
+  }
   function lvSelectGame(id) {
     const g = D().games.find(x => x.id === id); if (!g) return false;
     S.live.game = id; S.phase = 'after'; S.pointId = null; S.placeId = null;
@@ -2882,17 +2917,39 @@
   }
   function lvPointMenu(g, p) {
     const L_ = S.live, can = !L_.viewer;
-    const html = `<div class="lvm"><div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(lvWhere(p.x, p.y))} · сейчас: <b style="color:${sideColor(p.live)}">${esc(sideName(p.live))}</b></div>
+    const html = `<div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(lvWhere(p.x, p.y))} · сейчас: <b style="color:${sideColor(p.live)}">${esc(sideName(p.live))}</b></div>
       ${can ? `<div class="lvm__row">${D().sides.map(s => `<button type="button" class="lvm__side${p.live === s.id ? ' on' : ''}" style="--c:${esc(s.color)}" data-own="${esc(s.id)}">${esc(s.name)}</button>`).join('')}<button type="button" class="lvm__side${!p.live ? ' on' : ''}" data-own="">Ничья</button></div>
       <div class="lvm__row"><button type="button" class="lvm__b" data-plock>${p.lock ? '🔓 Открепить точку' : '🔒 Закрепить точку'}</button>${p.edited ? '<button type="button" class="lvm__b" data-preset>↺ Как в игре</button>' : ''}</div>
-      ${L_.lockAll ? '<div class="lvm__s">Двигать точки: снимите общий замок «🔒 Точки» внизу.</div>' : ''}` : ''}</div>`;
-    const pop = L.popup({ className: 'lv-pop', closeButton: true, autoPanPadding: [20, 70] }).setLatLng(toLL(p.x, p.y)).setContent(html).openOn(map);
-    const el = pop.getElement(); if (!el || !can) return;
-    el.onclick = e => {
-      const o = e.target.closest('[data-own]'); if (o) { lvPtSave(g, p, { owner: o.dataset.own }); map.closePopup(); toast(`${p.name}: ${sideName(o.dataset.own)}`); return; }
-      if (e.target.closest('[data-plock]')) { lvPtSave(g, p, { lock: !p.lock }); map.closePopup(); return; }
-      if (e.target.closest('[data-preset]')) { lvPut('pt', 'pt:' + g.id + ':' + p.id, { name: p.name }, true); map.closePopup(); }
-    };
+      ${L_.lockAll ? '<div class="lvm__s">Двигать точки: снимите замок «🔒 Точки» внизу.</div>' : ''}` : ''}`;
+    lvSheet(html, p, (e, sh) => {
+      if (!can) return;
+      const o = e.target.closest('[data-own]'); if (o) { lvPtSave(g, p, { owner: o.dataset.own }); sh.close(); toast(`${p.name}: ${sideName(o.dataset.own)}`); return; }
+      if (e.target.closest('[data-plock]')) { lvPtSave(g, p, { lock: !p.lock }); sh.close(); return; }
+      if (e.target.closest('[data-preset]')) { lvPut('pt', 'pt:' + g.id + ':' + p.id, { name: p.name }, true); sh.close(); }
+    });
+  }
+
+  /* ---------- шторка снизу: все меню лайф-карты (видно целиком, удобно большим пальцем) ---------- */
+  let lvSh = null;
+  function lvSheetClose() {
+    if (!lvSh) return; const s_ = lvSh; lvSh = null;
+    s_.el.remove(); if (s_.pin) s_.pin.remove(); if (s_.onClose) s_.onClose();
+    app.classList.remove('lv-sheet');
+  }
+  /** html — содержимое; at — {x, y} куда поставить булавку; onClick(e, api) — нажатия внутри. */
+  function lvSheet(html, at, onClick, onClose) {
+    lvSheetClose(); map.closePopup();
+    const ui = $('#liveUi'); if (!ui) return null;
+    const el = document.createElement('div'); el.className = 'lvui__sheet';
+    el.innerHTML = `<button type="button" class="lvui__shx" data-shx aria-label="Закрыть">✕</button><div class="lvm" data-body>${html}</div>`;
+    ui.appendChild(el); app.classList.add('lv-sheet');
+    const pin = at ? L.marker(toLL(at.x, at.y), { pane: 'live', interactive: false, keyboard: false, zIndexOffset: 3000,
+      icon: L.divIcon({ className: 'lv-wrap', html: '<div class="lv-pin"></div>', iconSize: [34, 34], iconAnchor: [17, 17] }) }).addTo(map) : null;
+    const api = { el, close: lvSheetClose, set: h => { el.querySelector('[data-body]').innerHTML = h; } };
+    lvSh = { el, pin, onClose };
+    el.addEventListener('click', e => { e.stopPropagation(); if (e.target.closest('[data-shx]')) { lvSheetClose(); return; } onClick && onClick(e, api); });
+    ['pointerdown', 'dblclick', 'contextmenu', 'wheel'].forEach(t => el.addEventListener(t, e => e.stopPropagation()));
+    return api;
   }
 
   /* ---------- метки ---------- */
@@ -2914,13 +2971,15 @@
         m = ico(r, 'lv--me' + st + (r.id === meKey ? ' lv--mine' : ''), `<i class="lv__dot"></i><span class="lv__lbl">${esc(d.name || 'Админ')} · ${ago}${d.gps ? ' · GPS' : ''}</span>`, 26);
       } else if (r.kind === 'go') {
         const me = LVrow().get(r.id.replace(/^go:/, 'me:'));
-        if (me && !me.gone) {
+        if (d.pts && d.pts.length > 1) lvRoute(d.pts, '#79b8ff', '9 7');
+        else if (me && !me.gone) {
           const a = [me.data.x * W, me.data.y * H], b = [d.x * W, d.y * H], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), len = 16 * Math.pow(2, Z - map.getZoom());
           L.polyline([pxLL(a), pxLL([b[0] - len * .7 * Math.cos(ang), b[1] - len * .7 * Math.sin(ang)])], { pane: 'live', color: '#79b8ff', weight: 3, dashArray: '8 7', opacity: .95, interactive: false }).addTo(liveLayer);
           L.polygon([pxLL(b), pxLL([b[0] - len * Math.cos(ang - .45), b[1] - len * Math.sin(ang - .45)]), pxLL([b[0] - len * Math.cos(ang + .45), b[1] - len * Math.sin(ang + .45)])], { pane: 'live', color: '#79b8ff', weight: 1, fillOpacity: .95, interactive: false }).addTo(liveLayer);
         }
         m = ico(r, 'lv--go', `<i class="lv__ring"></i><span class="lv__lbl">${esc(d.name || '')} → сюда</span>`, 22);
       } else if (r.kind === 'order') {
+        if (d.pts && d.pts.length > 1) lvRoute(d.pts, '#fac775');
         m = ico(r, 'lv--order', `<span class="lv__chip" title="${esc(d.name || '')} · ${ago}">${LV_ICON.order}${esc(d.text || 'Приказ')}</span>`, 24);
       } else if (r.kind === 'enemy') {
         m = ico(r, 'lv--enemy' + (age > LV_ENEMY_TTL / 2 ? ' lv--stale' : ''), `<i class="lv__dia"></i><span class="lv__lbl lv__lbl--r">враг${d.count ? ' ×' + esc(d.count) : ''} · ${ago}</span>`, 24);
@@ -2932,61 +2991,143 @@
       m.addTo(liveLayer);
     });
   }
-  const LV_WHAT = { me: 'Я тут', go: 'Иду сюда', order: 'Приказ', enemy: 'Противник', medic: 'Нужен медик' };
+  const LV_WHAT = { me: 'Я тут', go: 'Иду сюда / маршрут', order: 'Приказ', enemy: 'Противник', medic: 'Нужен медик' };
   function lvMarkMenu(r) {
     const d = r.data || {}, can = !S.live.viewer;
-    const html = `<div class="lvm"><div class="lvm__t">${LV_WHAT[r.kind] || 'Метка'}${r.kind === 'order' ? ': ' + esc(d.text || '') : r.kind === 'enemy' && d.count ? ' ×' + esc(d.count) : ''}</div>
-      <div class="lvm__s">${esc(d.name || '')}${d.name ? ' · ' : ''}${esc(lvWhere(d.x, d.y))} · ${lvAgo(lvAge(r))}${r.pending ? ' · <b style="color:var(--amber)">ещё не отправлено</b>' : ''}</div>
-      ${can ? `<div class="lvm__row"><button type="button" class="lvm__b lvm__b--del" data-rm>Снять метку</button></div>` : ''}</div>`;
-    const pop = L.popup({ className: 'lv-pop', autoPanPadding: [20, 70] }).setLatLng(toLL(d.x, d.y)).setContent(html).openOn(map);
-    const el = pop.getElement(); if (el && can) el.onclick = e => { if (e.target.closest('[data-rm]')) { lvPut(r.kind, r.id, r.data, true); map.closePopup(); } };
+    const html = `<div class="lvm__t">${LV_WHAT[r.kind] || 'Метка'}${r.kind === 'order' ? ': ' + esc(d.text || '') : r.kind === 'enemy' && d.count ? ' ×' + esc(d.count) : ''}</div>
+      <div class="lvm__s">${esc(d.name || '')}${d.name ? ' · ' : ''}${esc(lvWhere(d.x, d.y))} · ${lvAgo(lvAge(r))}${d.pts && d.pts.length > 1 ? ' · по маршруту' : ''}${r.pending ? ' · <b style="color:var(--amber)">ещё не отправлено</b>' : ''}</div>
+      ${can ? `<div class="lvm__row"><button type="button" class="lvm__b lvm__b--del" data-rm>Снять метку</button></div>` : ''}`;
+    lvSheet(html, d, (e, sh) => { if (can && e.target.closest('[data-rm]')) { lvPut(r.kind, r.id, r.data, true); sh.close(); } });
   }
-  /** Меню по долгому нажатию: иду сюда / приказ / противник / медик. */
+  const lvOrderPick = title => `<div class="lvm__t">${title}</div><div class="lvm__row">${LV_ORDERS.map(o => `<button type="button" class="lvm__b lvm__b--big" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+    <div class="lvm__row"><input class="lvm__in" maxlength="30" placeholder="свой текст"><button type="button" class="lvm__b" data-o="">OK</button></div>`;
+  /** Меню по долгому нажатию: я тут / иду сюда / приказ / противник / медик. */
   function lvAddMenu(x, y) {
     if (!S.live || S.live.viewer) return;
-    const ll = toLL(x, y), key = lvMeKey(), meRow = LVrow().get('me:' + key), hasMe = meRow && !meRow.gone;
-    const main = `<div class="lvm"><div class="lvm__s">${esc(lvWhere(x, y))}</div><div class="lvm__grid">
+    const key = lvMeKey(), meRow = LVrow().get('me:' + key), hasMe = meRow && !meRow.gone;
+    const main = `<div class="lvm__s">${esc(lvWhere(x, y))}</div><div class="lvm__grid">
       <button type="button" data-a="me">${LV_ICON.me}Я тут</button>
-      <button type="button" data-a="go" ${hasMe ? '' : 'title="Сначала отметьте, где вы"'}>${LV_ICON.go}Иду сюда</button>
+      <button type="button" data-a="go">${LV_ICON.go}Иду сюда</button>
       <button type="button" data-a="order">${LV_ICON.order}Приказ</button>
       <button type="button" data-a="enemy" class="r">${LV_ICON.enemy}Противник</button>
-      <button type="button" data-a="medic">${LV_ICON.medic}Медик</button></div></div>`;
-    const pop = L.popup({ className: 'lv-pop', autoPanPadding: [20, 80], minWidth: 210 }).setLatLng(ll).setContent(main).openOn(map);
-    const el = pop.getElement(); if (!el) return;
-    el.onclick = e => {
+      <button type="button" data-a="medic">${LV_ICON.medic}Медик</button></div>`;
+    lvSheet(main, { x, y }, (e, sh) => {
       const b = e.target.closest('button'); if (!b) return;
       const a = b.dataset.a, base = { x, y, name: lvName() };
-      if (a === 'me') { lvPutMe(x, y); map.closePopup(); return; }
-      if (a === 'go') { if (!hasMe) { toast('Сначала отметьте, где вы: двойное нажатие по карте или «Я тут»', 'err'); return; } lvPut('go', 'go:' + key, base); map.closePopup(); return; }
-      if (a === 'medic') { lvPut('medic', 'md:' + Store.uid(), base); map.closePopup(); return; }
-      if (a === 'order') { pop.setContent(`<div class="lvm"><div class="lvm__t">Приказ</div><div class="lvm__row">${LV_ORDERS.map(o => `<button type="button" class="lvm__b" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>
-          <div class="lvm__row"><input class="lvm__in" maxlength="30" placeholder="свой текст"><button type="button" class="lvm__b" data-o="">OK</button></div></div>`); return; }
-      if (a === 'enemy') { pop.setContent(`<div class="lvm"><div class="lvm__t">Противник — сколько?</div><div class="lvm__row">${['?', '1', '2', '3', '5', '10+'].map(n => `<button type="button" class="lvm__b" data-n="${n}">${n}</button>`).join('')}</div><div class="lvm__s">Метка погаснет сама через 10 минут.</div></div>`); return; }
-      if (b.dataset.o !== undefined) { const t = b.dataset.o || (el.querySelector('.lvm__in') || {}).value || ''; if (!t.trim()) { toast('Впишите текст приказа', 'err'); return; } lvPut('order', 'or:' + Store.uid(), Object.assign(base, { text: t.trim().slice(0, 30) })); map.closePopup(); return; }
-      if (b.dataset.n !== undefined) { lvPut('enemy', 'en:' + Store.uid(), Object.assign(base, { count: b.dataset.n === '?' ? '' : b.dataset.n })); map.closePopup(); }
-    };
+      if (a === 'me') { lvPutMe(x, y); sh.close(); return; }
+      if (a === 'go') { if (!hasMe) { toast('Сначала отметьте, где вы: двойное нажатие по карте или «Я тут»', 'err'); return; } lvPut('go', 'go:' + key, base); sh.close(); return; }
+      if (a === 'medic') { lvPut('medic', 'md:' + Store.uid(), base); sh.close(); return; }
+      if (a === 'order') { sh.set(lvOrderPick('Приказ')); return; }
+      if (a === 'enemy') { sh.set(`<div class="lvm__t">Противник — сколько?</div><div class="lvm__row">${['?', '1', '2', '3', '5', '10+'].map(n => `<button type="button" class="lvm__b lvm__b--big" data-n="${n}">${n}</button>`).join('')}</div><div class="lvm__s">Метка погаснет сама через 10 минут.</div>`); return; }
+      if (b.dataset.o !== undefined) { const t = b.dataset.o || (sh.el.querySelector('.lvm__in') || {}).value || ''; if (!t.trim()) { toast('Впишите текст приказа', 'err'); return; } lvPut('order', 'or:' + Store.uid(), Object.assign(base, { text: t.trim().slice(0, 30) })); sh.close(); return; }
+      if (b.dataset.n !== undefined) { lvPut('enemy', 'en:' + Store.uid(), Object.assign(base, { count: b.dataset.n === '?' ? '' : b.dataset.n })); sh.close(); }
+    });
   }
 
   /* ---------- жесты: двойное нажатие — «я тут», долгое — меню ---------- */
   let lvTap = null, lvHold = null, lvHoldAt = 0;
   function lvGestures() {
     map.on('click', e => {
-      if (!S.live || S.live.viewer || S.mode) return;
+      if (!S.live || S.live.viewer || S.mode || S.live.draw) return;
       const p = e.containerPoint, t = Date.now();
+      if (lvSh && !(lvTap && t - lvTap.t < 400)) { lvSheetClose(); lvTap = { t, p }; return; }
       if (lvTap && t - lvTap.t < 400 && p.distanceTo(lvTap.p) < 30) { lvTap = null; const { x, y } = fromLL(e.latlng); map.closePopup(); lvPutMe(x, y); return; }
       lvTap = { t, p };
     });
-    map.on('contextmenu', e => { if (!S.live || Date.now() - lvHoldAt < 900) return; const { x, y } = fromLL(e.latlng); lvAddMenu(x, y); });
+    map.on('contextmenu', e => { if (!S.live || S.live.draw || Date.now() - lvHoldAt < 900) return; const { x, y } = fromLL(e.latlng); lvAddMenu(x, y); });
     const el = map.getContainer();
     el.addEventListener('pointerdown', e => {
-      if (!S.live || S.live.viewer || e.pointerType === 'mouse' || e.target.closest('.leaflet-marker-icon, .leaflet-popup')) return;
+      if (!S.live || S.live.viewer || S.live.draw || e.pointerType === 'mouse' || e.target.closest('.leaflet-marker-icon, .leaflet-popup')) return;
       const at = { x: e.clientX, y: e.clientY };
       clearTimeout(lvHold && lvHold.t);
       lvHold = { at, t: setTimeout(() => { lvHoldAt = Date.now(); const r = el.getBoundingClientRect(); const { x, y } = fromLL(map.containerPointToLatLng([at.x - r.left, at.y - r.top])); if (navigator.vibrate) navigator.vibrate(30); lvAddMenu(x, y); }, 550) };
     });
+    // палец отпустили после долгого нажатия — этот «клик» не должен закрыть только что открытое меню
+    el.addEventListener('click', e => { if (S.live && Date.now() - lvHoldAt < 1200 && !e.target.closest('.leaflet-popup')) { e.stopPropagation(); e.preventDefault(); lvHoldAt = 0; } }, true);
     const cancel = e => { if (lvHold && (e.type !== 'pointermove' || Math.hypot(e.clientX - lvHold.at.x, e.clientY - lvHold.at.y) > 10)) { clearTimeout(lvHold.t); lvHold = null; } };
     ['pointermove', 'pointerup', 'pointercancel'].forEach(t => el.addEventListener(t, cancel));
     map.on('zoomend', () => { if (S.live) lvRenderMarks(); });
+    // карандаш: ведём пальцем (или мышью) — рисуется маршрут
+    el.addEventListener('pointerdown', e => {
+      const D_ = S.live && S.live.draw; if (!D_ || e.target.closest('.leaflet-popup') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      e.preventDefault(); e.stopPropagation(); if (lvSh) { const k = lvSh; k.onClose = null; lvSheetClose(); }
+      try { el.setPointerCapture(e.pointerId); } catch (x) {}
+      D_.on = e.pointerId; D_.pts = []; D_.scr = null; lvDrawAdd(e);
+    }, true);
+    el.addEventListener('pointermove', e => { const D_ = S.live && S.live.draw; if (D_ && D_.on === e.pointerId) { e.preventDefault(); lvDrawAdd(e); } }, true);
+    const up = e => { const D_ = S.live && S.live.draw; if (D_ && D_.on === e.pointerId) { D_.on = null; lvDrawEnd(); } };
+    el.addEventListener('pointerup', up, true); el.addEventListener('pointercancel', up, true);
+  }
+
+  /* ---------- карандаш: маршрут → «иду этим путём» или «приказ по маршруту» ---------- */
+  function lvDrawStart() {
+    const L_ = S.live; if (!L_ || L_.viewer) return;
+    if (L_.draw) { lvSheetClose(); lvDrawStop(); return; }
+    lvSheetClose();
+    L_.draw = { pts: [], on: null, line: L.polyline([], { pane: 'live', color: '#ffd166', weight: 4, opacity: .95, interactive: false }).addTo(map) };
+    map.dragging.disable(); map.touchZoom.disable();
+    app.classList.add('lv-drawing'); lvUiSync();
+    const h = $('#lvHint'); if (h) { h.textContent = 'Ведите пальцем путь · ✎ ещё раз — отмена'; h.classList.remove('fade'); }
+  }
+  function lvDrawStop() {
+    const L_ = S.live; if (!L_ || !L_.draw) return;
+    L_.draw.line.remove(); L_.draw = null;
+    if (!L_.mapLock) { map.dragging.enable(); map.touchZoom.enable(); }
+    app.classList.remove('lv-drawing'); lvUiSync();
+    const h = $('#lvHint'); if (h) { h.textContent = '2× нажатие — я тут · удержать — метки · ✎ — путь'; h.classList.add('fade'); }
+  }
+  function lvDrawAdd(e) {
+    const D_ = S.live.draw, r = map.getContainer().getBoundingClientRect(), cp = L.point(e.clientX - r.left, e.clientY - r.top);
+    if (D_.scr && cp.distanceTo(D_.scr) < 5) return;
+    D_.scr = cp; const { x, y } = fromLL(map.containerPointToLatLng(cp)); D_.pts.push([x, y]);
+    D_.line.setLatLngs(D_.pts.map(([px, py]) => toLL(px, py)));
+  }
+  /** Упрощение линии (Дуглас — Пекер) в пикселях подложки: меньше точек — легче передавать. */
+  function lvSimplify(pts, tol) {
+    if (pts.length < 3) return pts;
+    const P = pts.map(([x, y]) => [x * W, y * H]), keep = new Uint8Array(P.length); keep[0] = keep[P.length - 1] = 1;
+    const st = [[0, P.length - 1]];
+    while (st.length) {
+      const [a, b] = st.pop(); let md = 0, mi = -1; const [ax, ay] = P[a], [bx, by] = P[b], L2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      for (let i = a + 1; i < b; i++) { const [px, py] = P[i]; let t = L2 ? ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L2 : 0; t = Math.max(0, Math.min(1, t));
+        const d = Math.hypot(px - ax - t * (bx - ax), py - ay - t * (by - ay)); if (d > md) { md = d; mi = i; } }
+      if (md > tol) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+    }
+    return pts.filter((_, i) => keep[i]);
+  }
+  function lvDrawEnd() {
+    const L_ = S.live, D_ = L_.draw; if (!D_) return;
+    if (D_.pts.length < 3) { D_.pts = []; D_.line.setLatLngs([]); return; }   // это было касание, а не линия
+    let pts = lvSimplify(D_.pts, 2.5 * Math.pow(2, Z - map.getZoom()));
+    while (pts.length > 150) pts = lvSimplify(pts, 2 * Math.pow(2, Z - map.getZoom()) * (pts.length / 100));
+    pts = pts.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
+    D_.line.setLatLngs(pts.map(([x, y]) => toLL(x, y)));
+    const [ex, ey] = pts[pts.length - 1], key = lvMeKey();
+    const len = pts.slice(1).reduce((a, q, i) => a + lvMeters({ x: pts[i][0], y: pts[i][1] }, { x: q[0], y: q[1] }), 0);
+    let keep = false;   // «Заново» — остаёмся с карандашом
+    lvSheet(`<div class="lvm__t">Маршрут · ${Math.round(len)} м</div><div class="lvm__grid lvm__grid--2">
+        <button type="button" data-r="go">${LV_ICON.go}Иду этим путём</button><button type="button" data-r="order">${LV_ICON.order}Приказ по маршруту</button></div>
+        <div class="lvm__row"><button type="button" class="lvm__b" data-r="again">↺ Заново</button><button type="button" class="lvm__b" data-r="cancel">Отмена</button></div>`, { x: ex, y: ey }, (e, sh) => {
+      const b = e.target.closest('button'); if (!b) return;
+      const r = b.dataset.r, base = { x: ex, y: ey, pts, name: lvName() };
+      if (r === 'go') { lvPut('go', 'go:' + key, base); sh.close(); toast('Маршрут отмечен'); return; }
+      if (r === 'again') { keep = true; sh.close(); if (S.live && S.live.draw) { S.live.draw.pts = []; S.live.draw.line.setLatLngs([]); } return; }
+      if (r === 'cancel') { sh.close(); return; }
+      if (r === 'order') { sh.set(lvOrderPick('Приказ по маршруту')); return; }
+      if (b.dataset.o !== undefined) { const t = b.dataset.o || (sh.el.querySelector('.lvm__in') || {}).value || ''; if (!t.trim()) { toast('Впишите текст приказа', 'err'); return; }
+        lvPut('order', 'or:' + Store.uid(), Object.assign(base, { text: t.trim().slice(0, 30) })); sh.close(); toast('Приказ по маршруту отправлен'); }
+    }, () => { if (!keep && S.live && S.live.draw === D_) lvDrawStop(); });
+  }
+  /** Маршрут на карте: обводка, линия и стрелка на конце. */
+  function lvRoute(pts, color, dash) {
+    if (!pts || pts.length < 2) return;
+    const P = pts.map(([x, y]) => [x * W, y * H]), n = P.length, len = 16 * Math.pow(2, Z - map.getZoom());
+    let k = n - 2; while (k > 0 && Math.hypot(P[n - 1][0] - P[k][0], P[n - 1][1] - P[k][1]) < len) k--;
+    const [x1, y1] = P[k], [x2, y2] = P[n - 1], ang = Math.atan2(y2 - y1, x2 - x1);
+    const body = P.slice(0, -1).concat([[x2 - len * .7 * Math.cos(ang), y2 - len * .7 * Math.sin(ang)]]).map(pxLL);
+    L.polyline(body, { pane: 'live', color: '#000', weight: 6, opacity: .45, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
+    L.polyline(body, { pane: 'live', color, weight: 3.5, opacity: .95, dashArray: dash || null, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
+    L.polygon([[x2, y2], [x2 - len * Math.cos(ang - .45), y2 - len * Math.sin(ang - .45)], [x2 - len * Math.cos(ang + .45), y2 - len * Math.sin(ang + .45)]].map(pxLL), { pane: 'live', color: '#000', weight: 1, fillColor: color, fillOpacity: 1, interactive: false }).addTo(liveLayer);
   }
 
   /* ---------- GPS ---------- */
@@ -3022,17 +3163,22 @@
     const old = $('#liveUi'); if (old) old.remove();
     const v = S.live.viewer, box = document.createElement('div'); box.id = 'liveUi'; box.className = 'lvui';
     box.innerHTML = `<div class="lvui__top"><span class="lvui__st" id="lvSt"></span><div class="lvui__ttl"><b>${v ? 'Лайф-карта · просмотр' : 'Лайф-карта'}</b><span id="lvGame"></span></div>
+        ${v ? '' : '<button type="button" class="lvui__ib" id="lvMapLock" title="Закрепить карту">✋</button>'}<button type="button" class="lvui__ib" id="lvFs" title="Полный экран">⛶</button>
         <button type="button" class="lvui__x" id="lvExit" title="${v ? 'Перейти на сайт' : 'Выйти из лайф-карты'}">${v ? 'На сайт' : '✕'}</button></div>
       <div class="lvui__err" id="lvErr" hidden></div>
-      ${v ? '' : `<div class="lvui__hint" id="lvHint">2× нажатие — я тут · удержать — метки</div>
+      ${v ? '' : `<div class="lvui__hint" id="lvHint">2× нажатие — я тут · удержать — метки · ✎ — путь</div>
       <div class="lvui__bot">
         <button type="button" id="lvMe"><b>◎</b>Я тут</button>
+        <button type="button" id="lvDraw"><b>✎</b><span>Путь</span></button>
         <button type="button" id="lvGps"><b>⌖</b><span>GPS</span></button>
         <button type="button" id="lvLock"><b>🔒</b><span>Точки</span></button>
         <button type="button" id="lvMore"><b>☰</b>Ещё</button></div>`}`;
     $('.stage').appendChild(box);
     $('#lvExit').onclick = () => exitLive();
+    $('#lvFs').onclick = lvFsToggle;
     if (!v) {
+      $('#lvMapLock').onclick = () => lvMapLock(!S.live.mapLock);
+      $('#lvDraw').onclick = lvDrawStart;
       $('#lvMe').onclick = () => lvGpsFix(true);
       $('#lvGps').onclick = lvGpsToggle;
       $('#lvLock').onclick = () => { S.live.lockAll = !S.live.lockAll; lvUiSync(); renderMap(); toast(S.live.lockAll ? 'Точки закреплены — случайно не сдвинуть' : 'Точки можно перетаскивать'); };
@@ -3045,6 +3191,9 @@
     const L_ = S.live; if (!L_) return; const g = liveGame();
     const ge = $('#lvGame'); if (ge) ge.textContent = g ? `${fmtDate(g.date)} · ${g.title}` : '';
     const lk = $('#lvLock'); if (lk) { lk.classList.toggle('on', !L_.lockAll); lk.querySelector('b').textContent = L_.lockAll ? '🔒' : '🔓'; }
+    const ml = $('#lvMapLock'); if (ml) { ml.classList.toggle('on', !!L_.mapLock); ml.textContent = L_.mapLock ? '🔒' : '✋'; ml.title = L_.mapLock ? 'Карта закреплена — нажмите, чтобы снова двигать' : 'Закрепить карту (не сдвинется от касаний)'; }
+    const fs = $('#lvFs'); if (fs) { const on = !!document.fullscreenElement; fs.classList.toggle('on', on); fs.hidden = lvStandalone() && !lvFsCan(); fs.title = on ? 'Выйти из полного экрана' : 'Полный экран'; }
+    const dr = $('#lvDraw'); if (dr) { dr.classList.toggle('on', !!L_.draw); dr.querySelector('span').textContent = L_.draw ? 'Отмена' : 'Путь'; }
     const gp = $('#lvGps'); if (gp) { gp.classList.toggle('on', !!L_.gps); gp.querySelector('span').textContent = L_.gps ? 'GPS вкл' : 'GPS'; }
   }
   function lvStatus() {
@@ -3110,7 +3259,8 @@
     const t = s => { const d = new Date(s); return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
     const line = l => { const d = l.data || {}, w = d.x != null ? lvWhere(d.x, d.y) : '', who = d.name || (l.author || '').split('@')[0] || 'админ';
       if (l.kind === 'pt') return l.gone ? `точка «${esc(d.name || '')}» — как в игре` : `точка «${esc(d.name || '')}»: ${esc(sideName(d.owner))}${d.lock ? ', закреплена' : ''} · ${esc(w)}`;
-      const what = { me: d.gps ? 'я тут (GPS)' : 'я тут', go: 'иду сюда', order: `приказ «${esc(d.text || '')}»`, enemy: `противник${d.count ? ' ×' + esc(d.count) : ''}`, medic: 'нужен медик' }[l.kind] || l.kind;
+      const route = d.pts && d.pts.length > 1 ? ' по маршруту' : '';
+      const what = { me: d.gps ? 'я тут (GPS)' : 'я тут', go: route ? 'иду по маршруту' : 'иду сюда', order: `приказ «${esc(d.text || '')}»${route}`, enemy: `противник${d.count ? ' ×' + esc(d.count) : ''}`, medic: 'нужен медик' }[l.kind] || l.kind;
       return `<b>${esc(who)}</b>: ${l.gone ? 'снял — ' : ''}${what} · ${esc(w)}`; };
     openDialog({
       title: 'Журнал игры',
