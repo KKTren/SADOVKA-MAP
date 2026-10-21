@@ -5,7 +5,7 @@
    {
      settings:  { grid:{cols,rows,x,y,cw,ch,angle,square}, border:{color,width}, signup:{ vk } },
      sides:     [{ id, name, color }],              // стороны: красная, синяя, серая…
-     teams:     [{ id, name, logo, players:[{ id, callsign, role, rank, phone }] }],  // справочник команд; состав виден только админу
+     teams:     [{ id, name, logo, side, captain, city, since, vk, note, players:[{ id, callsign, role, rank, phone }] }],  // справочник команд; состав и note видны только админу
      info:      [{ id, title, body, photos }],      // разделы для новичков внизу сайта (правила, снаряжение, прокат…)
      links:     [{ id, kind, label, url }],         // соцсети и ссылки в шапке
      labels:    [{ id, x, y, text, size, color, opacity, scale }],  // крупные подписи полигона (color: '#rrggbb' или 'side:<id>')
@@ -159,6 +159,11 @@
     const str = (v, n) => String(v ?? '').slice(0, n);
     const teams = arr(d.teams).map(t => ({ id: t.id || uid(), name: t.name || 'Команда',
       logo: /^\s*(javascript|data|vbscript):/i.test(t.logo || '') ? '' : str(t.logo, 500).trim(),  // эмблема: ссылка на картинку
+      side: sides.some(x => x.id === t.side) ? t.side : '',                       // сторона по умолчанию ('' — в пуле)
+      captain: str(t.captain, 60).trim(), city: str(t.city, 60).trim(),
+      since: /^\d{4}$/.test(String(t.since || '')) ? String(t.since) : '',        // на полигоне с какого года
+      vk: /^\s*(javascript|data|vbscript):/i.test(t.vk || '') ? '' : str(t.vk, 300).trim(),
+      note: str(t.note, 1000),                                                     // заметка админа — в базе хранится в закрытой части
       players: arr(t.players).map(p => ({ id: p.id || uid(), callsign: str(p.callsign, 60), role: ['commander', 'fighter'].includes(p.role) ? p.role : '', rank: str(p.rank, 60), phone: str(p.phone, 40) })) }));
     const paint = v => /^#[0-9a-f]{6}$/i.test(v || '') || /^side:[\w-]{1,64}$/.test(v || '') ? v : '#ffffff';
     const op = v => Math.min(1, Math.max(0.05, isFinite(+v) && v !== '' && v != null ? +v : 0.8));
@@ -286,9 +291,9 @@
     async function checkAdmin() { try { admin = !!(await rpc('is_site_admin')); } catch (e) { admin = false; } return admin; }
     /** Телефоны игроков уходят в закрытую строку, посетителям не отдаются. */
     function split(d) {
-      const pub = structuredClone(d), phones = {};
-      pub.teams.forEach(t => t.players.forEach(p => { if (p.phone) phones[p.id] = p.phone; p.phone = ''; }));
-      return { pub, priv: { phones } };
+      const pub = structuredClone(d), phones = {}, notes = {};
+      pub.teams.forEach(t => { if (t.note) notes[t.id] = t.note; t.note = ''; t.players.forEach(p => { if (p.phone) phones[p.id] = p.phone; p.phone = ''; }); });
+      return { pub, priv: { phones, notes } };
     }
     async function fallbackJson() {
       const r = await fetch(cfg.jsonUrl + '?v=' + Date.now(), { cache: 'no-store' });
@@ -316,7 +321,8 @@
           try {
             const pr = (await rest('site_doc?id=eq.private&select=data'))[0];
             const phones = (pr && pr.data && pr.data.phones) || {};
-            arr(data.teams).forEach(t => arr(t.players).forEach(p => { if (phones[p.id]) p.phone = phones[p.id]; }));
+            const notes = (pr && pr.data && pr.data.notes) || {};
+            arr(data.teams).forEach(t => { if (notes[t.id]) t.note = notes[t.id]; arr(t.players).forEach(p => { if (phones[p.id]) p.phone = phones[p.id]; }); });
           } catch (e) { console.warn('Не удалось прочитать телефоны', e); }
         }
         doc = normalizeDoc(data, cfg);
