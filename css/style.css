@@ -1383,3 +1383,42 @@ body.live-on #app { position: fixed; inset: 0; z-index: 5000; height: 100dvh; gr
 .lvo { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; cursor: pointer; }
 .lvo span:nth-child(2) { flex: 1; }
 .lvo small { color: var(--muted); font-size: 11px; }
+
+/* ================= АККАУНТЫ ================= */
+.hlive { height: 34px; padding: 0 10px; border-radius: var(--radius); border: 1px solid #6fd14a99; background: #16240f; color: #9be37a; font: 500 13px var(--head); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.hlive:hover { border-color: #6fd14a; color: #c4f5ab; }
+@media (max-width: 480px) { .hlive span { display: none; } .hlive { padding: 0 9px; font-size: 16px; } }
+#btnLogin.on { color: #9be37a; border-color: #6fd14a99; }
+.acc-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); }
+.acc-tabs button { padding: 8px; border: 0; border-radius: 4px; background: none; color: var(--muted); font: 500 13px var(--head); letter-spacing: .1em; text-transform: uppercase; }
+.acc-tabs button.on { background: var(--panel-3); color: var(--text); }
+.acc-wish { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.acc-wish label { cursor: pointer; }
+.acc-wish input { position: absolute; opacity: 0; }
+.acc-wish span { display: flex; flex-direction: column; gap: 2px; height: 100%; padding: 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); }
+.acc-wish small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+.acc-wish input:checked + span { border-color: #ffd166; background: #2b2410; }
+.acc-wish input:focus-visible + span { outline: 2px solid var(--olive); }
+@media (max-width: 480px) { .acc-wish { grid-template-columns: 1fr; } }
+.acc-me { display: flex; align-items: center; gap: 10px; }
+.acc-me > div:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.acc-me b { font-size: 16px; }
+.acc-me small { color: var(--muted); font-size: 12px; }
+.acc-av { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--olive-d); color: #10140c; font: 600 18px var(--head); flex: none; }
+.acc-role { padding: 3px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap; border: 1px solid var(--line-2); color: var(--muted); }
+.acc-role--admin { border-color: #ffd16699; color: #ffd166; }
+.acc-role--commander { border-color: #79b8ff99; color: #79b8ff; }
+.acc-role--player { border-color: #6fd14a99; color: #9be37a; }
+.acc-role--pending { border-color: var(--amber); color: var(--amber); }
+.acc-role--blocked { border-color: var(--enemy); color: var(--enemy); }
+.acc-acts { display: flex; flex-direction: column; gap: 6px; }
+.acc-acts .btn { text-align: left; }
+.ppl { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.ppl__who { display: flex; flex-direction: column; }
+.ppl__who b { font-size: 14px; }
+.ppl__who small { font-size: 12px; color: var(--muted); }
+.ppl__acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ppl__acts select { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 6px 8px; font-size: 13px; max-width: 46%; }
+.ppl__acts .btn { padding: 6px 10px; }
+.ppl__pw { display: flex; gap: 6px; }
+.ppl__pw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 6px 8px; font: 13px var(--mono); }

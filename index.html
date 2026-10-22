@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="css/style.css?v=20261021f">
+<link rel="stylesheet" href="css/style.css?v=20261022a">
 </head>
 <body>
 
@@ -31,6 +31,7 @@
   <div class="top-right">
   <a class="contact" id="btnContact" href="#" target="_blank" rel="noopener" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 10h8M8 13h5" stroke="currentColor" stroke-width="2"/></svg><span class="contact__l">Связаться с админом</span><span class="contact__s">Написать</span></a>
   <nav class="soc" id="socLinks" aria-label="Мы в сети"></nav>
+  <button class="hlive" id="btnLive" hidden title="Лайф-карта ближайшей игры">◉ <span>Лайф-карта</span></button>
   <button class="iconbtn" id="btnLogin" title="Вход для админа" aria-label="Вход для админа" hidden>
     <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
   </button>
@@ -130,6 +131,7 @@
         <button id="admExport">Скачать games.json</button>
         <button id="admImport">Загрузить games.json…</button>
         <button id="admDiscard" class="danger">Сбросить черновик</button>
+        <button id="admPeople">Люди: роли и пароли…</button>
         <button id="admPass">Сменить пароль…</button>
         <button id="admLogout">Выйти</button>
       </div>
@@ -189,8 +191,8 @@
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="js/config.js?v=20261021f"></script>
-<script src="js/store.js?v=20261021f"></script>
-<script src="js/app.js?v=20261021f"></script>
+<script src="js/config.js?v=20261022a"></script>
+<script src="js/store.js?v=20261022a"></script>
+<script src="js/app.js?v=20261022a"></script>
 </body>
 </html>

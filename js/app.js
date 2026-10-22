@@ -2612,9 +2612,11 @@
     const on = store.canWrite();
     $('#adminbar').hidden = !on;
     document.body.classList.toggle('is-admin', on);
-    $('#btnLogin').classList.toggle('on', on);
-    $('#btnLogin').hidden = !(on || wantsAdmin());
-    $('#btnLogin').title = on ? 'Режим админа включён' : 'Вход для админа';
+    const role = store.role ? store.role() : (on ? 'admin' : ''), sb = store.mode === 'supabase';
+    $('#btnLogin').classList.toggle('on', !!role);
+    $('#btnLogin').hidden = sb ? false : !(on || wantsAdmin());   // с базой вход виден всем: игроки и командиры тоже входят
+    $('#btnLogin').title = role ? `Аккаунт: ${ROLE_RU[role] || role}` : sb ? 'Войти или зарегистрироваться' : 'Вход для админа';
+    $('#btnLive').hidden = !['player', 'commander'].includes(role);
     $('#admEditGame').disabled = !curGame();
     const noMap = isMedia(curGame());   // в игре без карты рисовать по карте нечего
     $('#admAddPoint').disabled = $('#admOwner').disabled = $('#admArrow').disabled = !curGame() || noMap;
@@ -2637,6 +2639,7 @@
     return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
   }
   function openLogin() {
+    if (store.mode === 'supabase' && store.role()) return openAccount();
     if (store.canWrite()) { toast('Вы уже в режиме админа'); return; }
     if (store.mode === 'supabase') return openLoginSb();
     openDialog({
@@ -2648,29 +2651,131 @@
       }
     });
   }
-  /** Вход через Supabase: у каждого админа свой email и пароль, правки сразу видны всем. */
-  function openLoginSb() {
+  /* ================================================================
+     АККАУНТЫ: вход и регистрация для всех. Роль выдаёт админ в «Людях».
+     ================================================================ */
+  const ROLE_RU = { admin: 'админ', commander: 'командир', player: 'игрок', pending: 'заявка на рассмотрении', blocked: 'доступ отключён' };
+  const WISH = [['player', 'Игрок', 'видит лайф-карту и отмечает себя'], ['commander', 'Командир', 'приказы и маршруты на лайф-карте'], ['admin', 'Админ', 'ведёт игры и сайт']];
+  const teamOpts = sel => `<option value="">— без команды —</option>` + D().teams.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru')).map(t => `<option value="${esc(t.id)}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  /** Вход через Supabase: логин (или почта админа) и пароль; вкладка «Регистрация» — заявка. */
+  function openLoginSb(mode = 'in') {
+    const up = mode === 'up';
     openDialog({
-      title: 'Вход для админа', submit: 'Войти',
-      body: fld('Email', '<input type="email" name="email" required autocomplete="username" autofocus>') + fld('Пароль', '<input type="password" name="pass" required autocomplete="current-password">') +
-        `<div class="note">Данные хранятся в общей базе: всё, что вы сохраните, <b>сразу видят все</b> посетители и другие админы. Если двое правят одновременно, сайт не даст затереть чужие изменения — предупредит и загрузит свежую версию.</div>`,
+      title: up ? 'Регистрация' : 'Вход', submit: up ? 'Отправить заявку' : 'Войти',
+      body: `<div class="acc-tabs"><button type="button" class="${up ? '' : 'on'}" data-mode="in">Вход</button><button type="button" class="${up ? 'on' : ''}" data-mode="up">Регистрация</button></div>` +
+        (up ? fld('Логин', '<input name="login" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_.\\-]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="sokol">', 'Латинские буквы, цифры, точка, _ и −. Им вы будете входить.') +
+          fld('Пароль', '<input type="password" name="pass" required minlength="6" autocomplete="new-password">', 'Не короче 6 знаков. Забудете — админ задаст новый.') +
+          fld('Позывной на карте', '<input name="callsign" required maxlength="24" placeholder="Сокол">') +
+          fld('Команда', `<select name="team">${teamOpts('')}</select>`) +
+          `<div class="fld"><span>Кем хотите быть</span><div class="acc-wish">${WISH.map(([k, n, d], i) => `<label><input type="radio" name="wish" value="${k}" ${i ? '' : 'checked'}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}</div><small>Права даёт админ — до этого будет «заявка на рассмотрении».</small></div>`
+        : fld('Логин', '<input name="login" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="логин или почта админа">') +
+          fld('Пароль', '<input type="password" name="pass" required autocomplete="current-password">') +
+          `<div class="note">Нет аккаунта? Откройте вкладку «Регистрация». Забыли пароль — напишите админу, он задаст новый.</div>`),
+      onOpen: f => f.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => openLoginSb(b.dataset.mode)),
       onSubmit: async fd => {
-        try { await store.signIn(fd.get('email'), fd.get('pass')); }
-        catch (e) { toast(/invalid|credentials/i.test(e.message) ? 'Неверный email или пароль' : e.message, 'err'); return false; }
-        await afterSbLogin();
+        try {
+          if (up) await store.signUp({ login: fd.get('login').trim(), password: fd.get('pass'), callsign: fd.get('callsign').trim(), team: fd.get('team') || '', wish: fd.get('wish') || 'player' });
+          else await store.signIn(fd.get('login').trim(), fd.get('pass'));
+        } catch (e) { toast(/invalid|credentials/i.test(e.message) ? 'Неверный логин или пароль' : e.message, 'err'); return false; }
+        if (store.canWrite()) { await afterSbLogin(); return; }
+        await reload(); const a = store.account() || {};
+        toast(up ? 'Заявка отправлена. Когда админ выдаст роль — появится доступ' : `Вы вошли: ${a.callsign || a.login} · ${ROLE_RU[store.role()] || ''}`);
       }
     });
+  }
+  /** Окно аккаунта: кто я, лайф-карта, позывной и команда, пароль, выход. */
+  function openAccount() {
+    const a = store.account() || {}, role = store.role(), team = teamById(a.team);
+    openDialog({
+      title: 'Аккаунт',
+      body: `<div class="acc-me"><div class="acc-av">${esc((a.callsign || a.login || '?').slice(0, 1).toUpperCase())}</div><div><b>${esc(a.callsign || a.login || store.who())}</b>
+          <small>${esc(a.login ? 'логин ' + a.login : store.who())}${team ? ' · ' + esc(team.name) : ''}</small></div><span class="acc-role acc-role--${esc(role)}">${esc(ROLE_RU[role] || role)}</span></div>
+        ${role === 'pending' ? `<div class="note">Заявка отправлена${a.wish ? ` (хотите быть: <b>${esc((WISH.find(w => w[0] === a.wish) || [, a.wish])[1])}</b>)` : ''}. Когда админ выдаст роль, здесь появится лайф-карта. Можно обновить: «Проверить».</div>` : ''}
+        ${role === 'blocked' ? '<div class="note">Доступ отключён админом.</div>' : ''}
+        <div class="acc-acts">${['player', 'commander', 'admin'].includes(role) ? '<button type="button" class="btn primary" data-a="live">◉ Лайф-карта</button>' : ''}
+          ${role === 'pending' ? '<button type="button" class="btn" data-a="check">↻ Проверить</button>' : ''}
+          ${role === 'admin' ? '<button type="button" class="btn" data-a="people">Люди: роли и пароли</button>' : ''}
+          <button type="button" class="btn" data-a="prof">Позывной и команда</button><button type="button" class="btn" data-a="pass">Сменить пароль</button><button type="button" class="btn danger" data-a="out">Выйти</button></div>`,
+      onOpen: f => f.addEventListener('click', async e => {
+        const b = e.target.closest('[data-a]'); if (!b) return; const k = b.dataset.a;
+        if (k === 'live') { $('#dlg').close(); openLiveFor(); }
+        if (k === 'check') { await store.refreshProfile(); await reload(); $('#dlg').close(); openAccount(); toast(store.role() === 'pending' ? 'Пока на рассмотрении' : 'Роль: ' + ROLE_RU[store.role()]); }
+        if (k === 'people') { $('#dlg').close(); openPeople(); }
+        if (k === 'prof') { $('#dlg').close(); openProfileForm(); }
+        if (k === 'pass') { $('#dlg').close(); openPassSb(); }
+        if (k === 'out') { $('#dlg').close(); if (S.live) exitLive(true); await store.signOut(); ls.set('pm-admin', false); await reload(); toast('Вы вышли'); }
+      })
+    });
+  }
+  function openProfileForm(done) {
+    const a = store.account() || {};
+    openDialog({
+      title: 'Позывной и команда',
+      body: fld('Позывной на карте', `<input name="callsign" required maxlength="24" value="${esc(a.callsign || '')}">`) + fld('Команда', `<select name="team">${teamOpts(a.team || '')}</select>`),
+      onSubmit: async fd => { await store.updateMe(fd.get('callsign').trim(), fd.get('team') || ''); await store.refreshProfile(); updateAdminUi(); toast('Сохранено'); if (done) done(); }
+    });
+  }
+  /** Лайф-карта для игрока и командира: ближайшая игра (или та, что в анонсе). */
+  function liveDefaultGame() {
+    const gs = D().games.filter(g => !isMedia(g)), f = featuredGame();
+    if (f && !isMedia(f)) return f;
+    const up = gs.filter(g => g.date >= today()).sort((a, b) => a.date.localeCompare(b.date))[0];
+    return up || gs.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+  }
+  function openLiveFor() {
+    const role = store.role();
+    if (role === 'admin' || role === 'commander') return openLiveStart();
+    const g = liveDefaultGame(); if (!g) { toast('Пока нет игры с картой', 'err'); return; }
+    enterLive({ game: g.id });
+  }
+  /** «Люди»: заявки и активные аккаунты — роль, команда, новый пароль, отключить. */
+  async function openPeople() {
+    let list = [];
+    try { list = await store.people.list(); } catch (e) { toast(/function|404/.test(e.message) ? 'Выполните supabase/accounts.sql в Supabase' : e.message, 'err'); return; }
+    const me = (store.account() || {}).uid;
+    const roleSel = p => p.fixed ? '<span class="acc-role acc-role--admin">админ (site_admins)</span>' : `<select data-role>${['player', 'commander', 'admin', 'blocked', 'pending'].map(r => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${ROLE_RU[r]}</option>`).join('')}</select>`;
+    const row = p => { const t = teamById(p.team);
+      return `<div class="ppl" data-uid="${esc(p.uid)}"><div class="ppl__who"><b>${esc(p.callsign || p.login)}</b><small>${esc(p.login)}${t ? ' · ' + esc(t.name) : ''}${p.role === 'pending' && p.wish ? ` · хочет: <b>${esc((WISH.find(w => w[0] === p.wish) || [, p.wish])[1])}</b>` : ''}${p.last_sign_in_at ? ' · был ' + esc(new Date(p.last_sign_in_at).toLocaleDateString('ru-RU')) : ''}</small></div>
+        ${p.role === 'pending' ? `<div class="ppl__acts"><button type="button" class="btn primary" data-ok="${esc(p.wish || 'player')}">✓ ${esc((WISH.find(w => w[0] === p.wish) || [, 'Игрок'])[1])}</button>${roleSel(p)}<button type="button" class="btn danger" data-no>✕</button></div>`
+        : `<div class="ppl__acts">${p.uid === me ? '<span class="acc-role acc-role--admin">это вы</span>' : roleSel(p)}<select data-team>${teamOpts(p.team)}</select><button type="button" class="btn" data-pw title="Задать новый пароль">🔑</button></div>`}
+        <div class="ppl__pw" hidden><input type="text" data-np minlength="6" maxlength="40" placeholder="новый пароль, от 6 знаков" autocomplete="off"><button type="button" class="btn primary" data-pwok>Задать</button></div></div>`; };
+    const pend = list.filter(p => p.role === 'pending'), act = list.filter(p => p.role !== 'pending' && p.role !== 'blocked'), off = list.filter(p => p.role === 'blocked');
+    openDialog({
+      title: `Люди · ${list.length}`,
+      body: `<div class="note">Пароли не видны никому — они хранятся зашифрованными. Забыл пароль — нажмите 🔑, задайте новый и скажите человеку; он может сменить его на свой в «Аккаунте».</div>
+        ${pend.length ? `<div class="sec__t">Заявки · ${pend.length}</div>${pend.map(row).join('')}` : ''}
+        <div class="sec__t">Активные · ${act.length}</div>${act.map(row).join('') || '<p class="hint">Пока никого.</p>'}
+        ${off.length ? `<div class="sec__t">Отключены · ${off.length}</div>${off.map(row).join('')}` : ''}`,
+      onOpen: f => {
+        const save = async (el, patch) => { const r = el.closest('[data-uid]'), p = list.find(x => x.uid === r.dataset.uid); Object.assign(p, patch);
+          try { await store.people.set(p.uid, p.role, p.team, p.callsign); toast(`${p.callsign || p.login}: ${ROLE_RU[p.role]}`); } catch (e) { toast(/self_demote/.test(e.message) ? 'Себя разжаловать нельзя' : e.message, 'err'); } };
+        f.addEventListener('change', e => { if (e.target.matches('[data-role]')) save(e.target, { role: e.target.value }); if (e.target.matches('[data-team]')) save(e.target, { team: e.target.value }); });
+        f.addEventListener('click', async e => {
+          const ok = e.target.closest('[data-ok]'); if (ok) { await save(ok, { role: ok.closest('[data-uid]').querySelector('[data-role]').value === 'pending' ? ok.dataset.ok : ok.closest('[data-uid]').querySelector('[data-role]').value }); $('#dlg').close(); openPeople(); return; }
+          const no = e.target.closest('[data-no]'); if (no) { await save(no, { role: 'blocked' }); $('#dlg').close(); openPeople(); return; }
+          const pw = e.target.closest('[data-pw]'); if (pw) { const b = pw.closest('[data-uid]').querySelector('.ppl__pw'); b.hidden = !b.hidden; if (!b.hidden) b.querySelector('input').focus(); return; }
+          const po = e.target.closest('[data-pwok]');
+          if (po) { const r = po.closest('[data-uid]'), v = r.querySelector('[data-np]').value; if (v.length < 6) { toast('Пароль — от 6 знаков', 'err'); return; }
+            try { await store.people.password(r.dataset.uid, v); r.querySelector('.ppl__pw').hidden = true; toast(`Новый пароль задан: ${v} — скажите его человеку`); } catch (err) { toast(err.message, 'err'); } }
+        });
+      }
+    });
+  }
+  /** Админу при входе: есть ли новые заявки. */
+  async function peopleNotice() {
+    if (store.mode !== 'supabase' || !store.canWrite() || !store.people) return;
+    try { const n = (await store.people.list()).filter(p => p.role === 'pending').length; if (n) toast(`Новые заявки: ${n} — «Ещё → Люди»`); } catch (e) {}
   }
   async function afterSbLogin() {
     await reload();
     if (store.isEmpty()) { // первая настройка: переносим data/games.json в базу
       try { await store.save(); refresh(); toast('База была пустой — данные из games.json перенесены в неё'); } catch (e) { toast('Не удалось перенести данные в базу: ' + e.message, 'err'); }
-    } else { const m = store.meta(); toast(`Вы вошли как ${store.who()}${m.by ? `. Последнее изменение: ${m.by}, ${new Date(m.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`); }
+    } else { setTimeout(peopleNotice, 3500); const m = store.meta(); toast(`Вы вошли как ${store.who()}${m.by ? `. Последнее изменение: ${m.by}, ${new Date(m.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`); }
   }
   function openPassSb() {
     openDialog({
       title: 'Сменить мой пароль', submit: 'Сменить',
-      body: `<p class="hint">Аккаунт: <b>${esc(store.who())}</b></p>` + fld('Новый пароль', '<input type="password" name="p1" required minlength="8" autocomplete="new-password">') + fld('Ещё раз', '<input type="password" name="p2" required minlength="8" autocomplete="new-password">'),
+      body: `<p class="hint">Аккаунт: <b>${esc(store.who())}</b></p>` + fld('Новый пароль', '<input type="password" name="p1" required minlength="6" autocomplete="new-password">') + fld('Ещё раз', '<input type="password" name="p2" required minlength="6" autocomplete="new-password">'),
       onSubmit: async fd => {
         if (fd.get('p1') !== fd.get('p2')) { toast('Пароли не совпадают', 'err'); return false; }
         await store.changePassword(fd.get('p1')); toast('Пароль изменён');
@@ -2693,6 +2798,7 @@
     });
   }
   $('#btnLogin').onclick = openLogin;
+  $('#btnLive').onclick = openLiveFor;
   $('#admNewScenario').onclick = () => openScenarioForm(null);
   $('#admNewGame').onclick = () => openGameForm(null);
   $('#admAddPoint').onclick = () => S.mode ? stopMode() : startPick('point');
@@ -2716,6 +2822,7 @@
   mi('#admEditGame', () => curGame() && openGameForm(curGame()));
   $('#admSettings').onclick = () => { closeMenu(); openSettings(); };
   $('#admLive').onclick = () => { closeMenu(); openLiveStart(); };
+  $('#admPeople').onclick = () => { closeMenu(); if (store.mode !== 'supabase') { toast('Аккаунты работают только с базой Supabase', 'err'); return; } openPeople(); };
   $('#admHero').onclick = () => { closeMenu(); openHeroForm(null); };
   $('#admPass').onclick = () => { closeMenu(); openPassForm(); };
   mi('#admExport', exportJson);
@@ -2736,7 +2843,7 @@
     if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Точно? Нажмите ещё раз'; return; }
     closeMenu(); store.discardDraft(); buildGrid(); selectScenario(scById(S.scId) ? S.scId : ''); toast('Черновик сброшен');
   };
-  $('#admLogout').onclick = async () => { closeMenu(); stopMode(); await store.signOut(); ls.set('pm-admin', false); await reload(); toast('Вы вышли из режима админа'); };
+  $('#admLogout').onclick = async () => { closeMenu(); stopMode(); if (S.live) exitLive(true); await store.signOut(); ls.set('pm-admin', false); await reload(); toast('Вы вышли из режима админа'); };
 
   document.addEventListener('keydown', e => {
     if (!$('#lightbox').hidden) { if (e.key === 'Escape') lbClose(); else if (e.key === 'ArrowLeft') lbStep(-1); else if (e.key === 'ArrowRight') lbStep(1); return; }
@@ -2787,7 +2894,11 @@
   const lvNow = () => Date.now() + (S.live ? S.live.skew : 0);
   const lvAge = r => Math.max(0, lvNow() - Date.parse(r.updated_at));
   const lvAgo = ms => ms < 45e3 ? 'сейчас' : ms < 3600e3 ? Math.round(ms / 60e3) + ' мин' : Math.floor(ms / 3600e3) + ' ч ' + Math.round(ms % 3600e3 / 60e3) + ' мин';
-  const lvDevice = () => { let d = ls.get('pm-dev', ''); if (!d) { d = Store.uid(); ls.set('pm-dev', d); } return d; };
+  /* Кто я на лайф-карте: admin / commander / player (по аккаунту) или guest (по ссылке). */
+  const lvAcc = () => S.live && (S.live.role === 'player' || S.live.role === 'commander') ? store.account() : null;
+  const lvAdmin = () => !!S.live && S.live.role === 'admin';
+  /** Ключ «моих» меток: у игрока и командира — аккаунт (один на все его телефоны), у админа и гостя — этот браузер. */
+  const lvDevice = () => { const a = lvAcc(); if (a && a.uid) return 'u' + String(a.uid).replace(/-/g, ''); let d = ls.get('pm-dev', ''); if (!d) { d = Store.uid(); ls.set('pm-dev', d); } return d; };
   const lvMeKey = () => lvDevice();   // «я тут» — одна метка на телефон: даже под общим входом двое админов не затрут друг друга
   const lvWhere = (x, y) => { const { sq, snail, out } = squareOf(x, y); return out ? 'вне сетки' : `${sq}-${snail}`; };
   const lvMeters = (a, b) => Math.hypot((a.x - b.x) * W, (a.y - b.y) * H) * mpp();
@@ -2803,7 +2914,8 @@
     if (!games.length) { toast('Сначала создайте игру с картой', 'err'); return; }
     const near = games.filter(g => g.date >= today()).pop();
     const def = (curGame() && !isMedia(curGame()) && curGame()) || near || games[0];
-    const name = ls.get('pm-live-name', '') || (store.live.who() && store.live.who() !== 'local' ? store.live.who().split('@')[0] : '');
+    const acc = store.account && store.account();
+    const name = ls.get('pm-live-name', '') || (acc && (acc.callsign || acc.login)) || (store.live.who() && store.live.who() !== 'local' ? store.live.who().split('@')[0] : '');
     openDialog({
       title: 'Лайф-карта', submit: 'Открыть',
       body: fld('Игра', `<select name="game">${games.map(g => { const sc = scById(g.scenarioId); return `<option value="${esc(g.id)}" ${g.id === def.id ? 'selected' : ''}>${esc(fmtDate(g.date))} — ${esc(g.title)}${sc ? ' · ' + esc(sc.title) : ''}</option>`; }).join('')}</select>`) +
@@ -2818,9 +2930,9 @@
   function enterLive({ game, token }) {
     if (S.live) exitLive(true);
     stopMode(); stopPlay && S.play && stopPlay(true);
-    const viewer = !!token;
+    const role = token ? 'guest' : store.role(), viewer = role === 'guest' || role === 'player';   // игрок и гость только отмечают себя
     let queue = []; try { queue = viewer ? [] : JSON.parse(ls.get('pm-live-q', '[]')) || []; } catch (e) { queue = []; }
-    S.live = { game: game || null, viewer, token: token || '', rows: new Map(), since: null, skew: 0, lockAll: true, queue, online: null, lastOk: 0, timer: 0, gps: null, err: '', busy: false };
+    S.live = { game: game || null, viewer, role, token: token || '', rows: new Map(), since: null, skew: 0, lockAll: true, queue, online: null, lastOk: 0, timer: 0, gps: null, err: '', busy: false };
     document.body.classList.add('live-on'); app.classList.add('live');
     if (game) lvSelectGame(game);
     if (!liveLayer) { map.createPane('live').style.zIndex = 640; liveLayer = L.layerGroup().addTo(map); } else liveLayer.addTo(map);
@@ -2903,9 +3015,9 @@
     try {
       await lvFlush();
       const since = L_.since ? new Date(Date.parse(L_.since) - 5000).toISOString() : null;   // небольшое перекрытие — ничего не теряем
-      const r = L_.viewer ? await store.live.view(L_.token, since) : await store.live.pull(L_.game, since);
+      const r = L_.token ? await store.live.view(L_.token, since) : await store.live.pull(L_.game, since);
       if (S.live !== L_) return;
-      if (L_.viewer && r.game && r.game !== L_.game) { if (!lvSelectGame(r.game)) { L_.err = 'Игра по этой ссылке не найдена на сайте'; } }
+      if (L_.token && r.game && r.game !== L_.game) { if (!lvSelectGame(r.game)) { L_.err = 'Игра по этой ссылке не найдена на сайте'; } }
       L_.skew = Date.parse(r.now) - Date.now();
       let changedPts = false;
       (r.rows || []).forEach(row => {
@@ -2936,7 +3048,7 @@
     const L_ = S.live; if (!L_) return;
     while (L_.queue.length) {
       const m = L_.queue[0];
-      const t = m.guest ? await store.live.guestPut(L_.token, m) : await store.live.put(m);                          // ошибка — остаёмся в очереди, отправим при следующей связи
+      const t = m.guest ? (L_.token ? await store.live.guestPut(L_.token, m) : await store.live.playerPut(m)) : await store.live.put(m);                          // ошибка — остаёмся в очереди, отправим при следующей связи
       L_.queue.shift(); ls.set('pm-live-q', JSON.stringify(L_.queue));
       const row = L_.rows.get(m.id);
       if (row && row.pending && row.qid === m.qid) { row.pending = false; delete row.qid; if (typeof t === 'string') row.updated_at = t; }
@@ -2952,7 +3064,7 @@
     if (kind === 'pt') renderMap(); else lvRenderMarks();
     lvStatus(); lvPoll();
   }
-  const lvName = () => ls.get('pm-live-name', '') || 'Админ';
+  const lvName = () => { const a = store.account && store.account(); return ls.get('pm-live-name', '') || (a && (a.callsign || a.login)) || 'Админ'; };
   function lvPutMe(x, y, extra = {}) {
     if (S.live.viewer) return lvGuestMe(x, y, extra);
     const key = lvMeKey(), here = { x, y };
@@ -2972,7 +3084,7 @@
     lvPut('pt', id, Object.assign({ x: p.x, y: p.y, owner: p.live, lock: p.lock, name: p.name }, o && !o.gone ? o.data : {}, patch));
   }
   function renderLivePoints(g) {
-    const L_ = S.live, can = !L_.viewer;
+    const L_ = S.live, can = lvAdmin();   // точки игры двигает и перекрашивает только админ
     livePoints(g).forEach(p => {
       const color = sideColor(p.live), o = g.points.find(q => q.id === p.id);   // зона едет вместе с точкой
       if (S.f.areas && p.area.length >= 3) L.polygon(polyLL(p.area.map(([ax, ay]) => [ax + p.x - o.x, ay + p.y - o.y])),
@@ -2988,7 +3100,7 @@
     });
   }
   function lvPointMenu(g, p) {
-    const L_ = S.live, can = !L_.viewer;
+    const L_ = S.live, can = lvAdmin();
     const html = `<div class="lvm__t">${esc(p.name)}</div><div class="lvm__s">${esc(lvWhere(p.x, p.y))} · сейчас: <b style="color:${sideColor(p.live)}">${esc(sideName(p.live))}</b></div>
       ${can ? `<div class="lvm__row">${D().sides.map(s => `<button type="button" class="lvm__side${p.live === s.id ? ' on' : ''}" style="--c:${esc(s.color)}" data-own="${esc(s.id)}">${esc(s.name)}</button>`).join('')}<button type="button" class="lvm__side${!p.live ? ' on' : ''}" data-own="">Ничья</button></div>
       <div class="lvm__row"><button type="button" class="lvm__b" data-plock>${p.lock ? '🔓 Открепить точку' : '🔒 Закрепить точку'}</button>${p.edited ? '<button type="button" class="lvm__b" data-preset>↺ Как в игре</button>' : ''}</div>
@@ -3138,8 +3250,11 @@
     });
   }
   /** Гость отмечает себя: двойное нажатие или GPS. Ник спрашиваем один раз. */
+  const lvMyTeam = () => { const a = lvAcc(); return a ? a.team || '' : ls.get('pm-guest-team', ''); };
   function lvGuestMe(x, y, extra = {}) {
+    const a = lvAcc();
     const go = (name, team) => lvPut('guest', 'gu:' + lvDevice(), Object.assign({ x, y, name, team: team || '', ack: (LVrow().get('gu:' + lvDevice()) || { data: {} }).data.ack || '' }, extra));
+    if (a) { go(a.callsign || a.login, a.team || ''); return; }   // игрок с аккаунтом: позывной и команда — из профиля
     const nm = ls.get('pm-guest-name', ''), tmSet = ls.get('pm-guest-team', null) !== null || !lvGameTeams().size;
     if (nm && tmSet) { go(nm, ls.get('pm-guest-team', '')); return; }
     lvAskNick((n, t) => go(n, t), { x, y });
@@ -3167,7 +3282,7 @@
     const L_ = S.live; if (!L_ || !L_.viewer) return;
     const me = lvDevice(), seen = ls.get('pm-guest-seen', []) || [];
     const box = $('#lvMsg'); if (!box) return;
-    const myTeam = ls.get('pm-guest-team', ''), capped = lvCapped();
+    const myTeam = lvMyTeam(), capped = lvCapped();
     const items = [...LVrow().values()].filter(r => !r.gone && r.data && (r.data.to === me || (myTeam && r.data.toKind === 'team' && r.data.to === myTeam && !capped.has(r.id))) && (r.kind === 'msg' || r.kind === 'route') && lvAge(r) < 3 * 3600e3)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     const fresh = items.find(r => !seen.includes(r.id));
@@ -3463,7 +3578,7 @@
       <div class="lvt__g">${Object.entries(LV_SHOW).map(([k, v]) => tg('s:' + k, v, P.show[k] !== false)).join('')}</div>
       ${P.hidden.length ? `<div class="lvm__row"><button type="button" class="lvm__b" data-unhide>Показать скрытые (${P.hidden.length})</button></div>` : ''}
       <div class="lvm__s">Прочее</div>
-      <div class="lvt__g">${L_.viewer ? '' : tg('x:pts', 'Можно двигать точки игры', !L_.lockAll)}${tg('x:compass', 'Компас — куда я смотрю', !!L_.compass)}</div>
+      <div class="lvt__g">${L_.viewer ? '' : (lvAdmin() ? tg('x:pts', 'Можно двигать точки игры', !L_.lockAll) : '')}${tg('x:compass', 'Компас — куда я смотрю', !!L_.compass)}</div>
       <div class="lvm__s">Приказов на команду на карте</div><div class="lvm__row">${[2, 3, 5].map(n => `<button type="button" class="lvm__b${(P.cap || 3) === n ? ' on' : ''}" data-cap="${n}">${n}</button>`).join('')}</div>`; };
     lvSheet(html(), null, (e, sh) => {
       if (e.target.closest('[data-unhide]')) { lvPrefSet({ hidden: [] }); lvRenderMarks(); sh.set(html()); }
@@ -3581,7 +3696,9 @@
     $('#lvRose').onclick = () => lvRotate(0);
     $('#lvFreq').onclick = lvFreqEdit;
     ['pointerdown', 'dblclick', 'contextmenu'].forEach(t => [$('#lvRot'), $('#lvRose'), $('#lvMsg')].forEach(el => el.addEventListener(t, e => e.stopPropagation())));
-    if (v) { $('#lvMe').onclick = () => lvGpsFix(true); $('#lvNick').onclick = () => lvAskNick((n, t) => { const g = LVrow().get('gu:' + lvDevice()); if (g && !g.gone) lvPut('guest', g.id, Object.assign({}, g.data, { name: n, team: t })); }); }
+    if (v) { $('#lvMe').onclick = () => lvGpsFix(true);
+      const upd = (n, t) => { const g = LVrow().get('gu:' + lvDevice()); if (g && !g.gone) lvPut('guest', g.id, Object.assign({}, g.data, { name: n, team: t })); };
+      $('#lvNick').onclick = () => lvAcc() ? openProfileForm(() => { const a = store.account(); upd(a.callsign || a.login, a.team); }) : lvAskNick(upd); }
     $('#lvList').addEventListener('click', lvListClick);
     ['pointerdown', 'dblclick', 'contextmenu', 'wheel'].forEach(t => $('#lvList').addEventListener(t, e => e.stopPropagation()));
     if (!v) {
@@ -3620,8 +3737,8 @@
         <button type="button" class="btn" data-lv="log">☰ Журнал игры</button>
         <button type="button" class="btn" data-lv="name">✎ Позывной: ${esc(lvName())}</button>
         <button type="button" class="btn" data-lv="game">⇄ Другая игра</button>
-        <button type="button" class="btn" data-lv="apply" ${edits ? '' : 'disabled'}>⤓ Перенести итог в игру${edits ? ` (${edits} ${plural(edits, 'точка', 'точки', 'точек')})` : ''}</button>
-        <button type="button" class="btn danger" data-lv="clear" ${marks ? '' : 'disabled'}>Убрать все метки${marks ? ` (${marks})` : ''}</button></div>
+        ${lvAdmin() ? '' : '<!--'}<button type="button" class="btn" data-lv="apply" ${edits ? '' : 'disabled'}>⤓ Перенести итог в игру${edits ? ` (${edits} ${plural(edits, 'точка', 'точки', 'точек')})` : ''}</button>
+        <button type="button" class="btn danger" data-lv="clear" ${marks ? '' : 'disabled'}>Убрать все метки${marks ? ` (${marks})` : ''}</button>${lvAdmin() ? '' : '-->'}</div>
         <small class="hint">Точки, которые вы двигали или перекрасили, остаются на лайф-карте. «Перенести итог в игру» запишет их владельцев в «после игры» — это увидят посетители сайта.</small>`,
       onOpen: f => f.addEventListener('click', async e => {
         const b = e.target.closest('[data-lv]'); if (!b) return; const a = b.dataset.lv;
@@ -3720,6 +3837,7 @@
     if (lvFromUrl()) { /* зритель по ссылке — сразу на лайф-карту */ }
     else if (wantsAdmin() && !store.canWrite()) openLogin();
     else if (store.mode === 'supabase' && store.canWrite() && store.isEmpty()) await afterSbLogin();
+    else if (store.mode === 'supabase' && store.canWrite()) setTimeout(peopleNotice, 2500);
     // другой админ мог сохранить свою версию, пока вкладка была в фоне — подтягиваем
     if (store.mode === 'supabase') addEventListener('focus', async () => {
       if (!store.canWrite() || $('#dlg').open || S.mode || S.live) return;

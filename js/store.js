@@ -243,6 +243,8 @@
       },
       async signIn() { admin = true; return true; },
       async signOut() { admin = false; },
+      account: () => null,
+      role: () => admin ? 'admin' : '',
       /** Сохраняет текущий документ как черновик админа (до скачивания файла его видит только этот браузер). */
       async save() {
         doc = normalizeDoc(doc, cfg);
@@ -295,7 +297,16 @@
      ================================================================ */
   function SupabaseBackend(cfg) {
     const URL_ = String(cfg.supabaseUrl).replace(/\/+$/, ''), KEY = cfg.supabaseAnonKey, SES = 'polygon-sb-session';
-    let doc = normalizeDoc(null, cfg), version = 0, meta = { at: '', by: '' }, admin = false, session = null, empty = false;
+    let doc = normalizeDoc(null, cfg), version = 0, meta = { at: '', by: '' }, admin = false, session = null, empty = false, profile = null;
+    /* Вход по логину: Supabase нужен адрес почты — делаем служебный из логина (письма туда не ходят:
+       в настройках Supabase выключено «Confirm email»). Админы по-прежнему могут входить своей почтой. */
+    const LOGIN_DOMAIN = 'sadovka.player';
+    const toEmail = l => { l = String(l || '').trim(); return l.includes('@') ? l : l.toLowerCase() + '@' + LOGIN_DOMAIN; };
+    async function loadProfile() {
+      try { profile = await rpc('my_profile'); } catch (e) { profile = null; }   // accounts.sql ещё не выполнен — только админы
+      if (admin) profile = Object.assign({}, profile || {}, { role: 'admin' });
+      return profile;
+    }
     try { session = JSON.parse(ls.get(SES) || 'null'); } catch (e) { session = null; }
     const keep = s => { session = s; if (s) ls.set(SES, JSON.stringify(s)); else ls.del(SES); };
     const err = async (r, def) => { let m = def; try { const j = await r.json(); m = j.message || j.msg || j.error_description || j.error || def; } catch (e) {} const e = new Error(m); e.status = r.status; return e; };
@@ -360,14 +371,38 @@
       },
       /** Без аргументов — восстановить прошлый вход в этом браузере. */
       async signIn(email, password) {
-        if (email) await auth('token?grant_type=password', { email: String(email).trim(), password });
+        if (email) await auth('token?grant_type=password', { email: toEmail(email), password });
         if (!session) return false;
-        if (!(await checkAdmin())) { if (email) { const who = session.email; await this.signOut(); throw new Error(`${who} нет в списке админов. Добавьте его в таблицу site_admins в Supabase.`); } return false; }
+        await checkAdmin(); await loadProfile();
+        if (!admin && !(profile && profile.role)) {   // нет ни админа, ни профиля (accounts.sql не выполнен)
+          if (email) { const who = session.email; await this.signOut(); throw new Error(`${who} нет в списке админов. Добавьте его в таблицу site_admins в Supabase.`); }
+          return false;
+        }
         return true;
+      },
+      /** Регистрация: логин + пароль + позывной, команда, кем хочет быть. Роль выдаёт админ. */
+      async signUp({ login, password, callsign, team, wish }) {
+        const r = await fetch(`${URL_}/auth/v1/signup`, { method: 'POST', headers: { apikey: KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: toEmail(login), password, data: { login: String(login).trim().toLowerCase(), callsign, team, wish } }) });
+        if (!r.ok) { const e = await err(r, 'Не удалось зарегистрироваться'); if (/already|exists|registered/i.test(e.message)) e.message = 'Такой логин уже занят'; if (/signups? not allowed|disabled/i.test(e.message)) e.message = 'Регистрация выключена в настройках Supabase'; throw e; }
+        const j = await r.json();
+        if (!j.access_token) throw new Error('В Supabase включено подтверждение почты — выключите «Confirm email», иначе вход по логину не работает');
+        keep({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: (j.user && j.user.email) || '' });
+        await checkAdmin(); await loadProfile();
+        return true;
+      },
+      account: () => profile,
+      role: () => admin ? 'admin' : (profile && profile.role) || '',
+      async refreshProfile() { await checkAdmin(); return loadProfile(); },
+      updateMe: (callsign, team) => rpc('my_profile_update', { p_callsign: callsign, p_team: team }),
+      people: {
+        list: () => rpc('people_list'),
+        set: (uid, role, team, callsign) => rpc('people_set', { p_uid: uid, p_role: role, p_team: team, p_callsign: callsign }),
+        password: (uid, pass) => rpc('people_password', { p_uid: uid, p_pass: pass })
       },
       async signOut() {
         if (session) { try { await fetch(`${URL_}/auth/v1/logout`, { method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + session.access_token } }); } catch (e) {} }
-        keep(null); admin = false;
+        keep(null); admin = false; profile = null;
       },
       async changePassword(password) {
         const r = await fetch(`${URL_}/auth/v1/user`, { method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
@@ -399,6 +434,7 @@
         pull: (g, since) => rpc('live_pull', { p_game: g, p_since: since || null }),
         view: (tk, since) => rpc('live_view', { p_token: tk, p_since: since || null }),
         guestPut: (tk, m) => rpc('live_guest_put', { p_token: tk, p_id: m.id, p_data: m.data || {}, p_gone: !!m.gone }),
+        playerPut: m => rpc('live_player_put', { p_game: m.game, p_id: m.id, p_data: m.data || {}, p_gone: !!m.gone }),
         journal: (g, n = 200) => rpc('live_journal', { p_game: g, p_limit: n }),
         shareNew: (g, h) => rpc('live_share_new', { p_game: g, p_hours: h }),
         shareStop: g => rpc('live_share_stop', { p_game: g })
