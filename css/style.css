@@ -1422,3 +1422,7 @@ body.live-on #app { position: fixed; inset: 0; z-index: 5000; height: 100dvh; gr
 .ppl__acts .btn { padding: 6px 10px; }
 .ppl__pw { display: flex; gap: 6px; }
 .ppl__pw input { flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 6px 8px; font: 13px var(--mono); }
+.dlg__msg { margin: 0 16px 10px; padding: 9px 12px; border-radius: var(--radius); background: #24301d; border: 1px solid var(--olive); font-size: 13px; }
+.dlg__msg.err { background: #3b1a14; border-color: var(--enemy); color: #ffd9cf; }
+.acc-wish label { position: relative; }
+.dlg__body { overflow-x: hidden; }

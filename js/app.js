@@ -292,6 +292,12 @@
   function toast(msg, kind) {
     const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (kind === 'err' ? ' err' : ''); t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), kind === 'err' ? 6000 : 3200);
+    // открытое окно закрывает всплывашку — показываем сообщение и внутри окна
+    const dlg = $('#dlg');
+    if (dlg && dlg.open) { const f = $('#dlgForm'), foot = f && f.querySelector('.dlg__foot'); if (!foot) return;
+      let m = f.querySelector('.dlg__msg'); if (!m) { m = document.createElement('div'); foot.before(m); }
+      m.className = 'dlg__msg' + (kind === 'err' ? ' err' : ''); m.textContent = msg; m.hidden = false;
+      clearTimeout(m._t); m._t = setTimeout(() => { m.hidden = true; }, kind === 'err' ? 12000 : 5000); }
   }
 
   /* ================================================================
@@ -2676,7 +2682,15 @@
         try {
           if (up) await store.signUp({ login: fd.get('login').trim(), password: fd.get('pass'), callsign: fd.get('callsign').trim(), team: fd.get('team') || '', wish: fd.get('wish') || 'player' });
           else await store.signIn(fd.get('login').trim(), fd.get('pass'));
-        } catch (e) { toast(/invalid|credentials/i.test(e.message) ? 'Неверный логин или пароль' : e.message, 'err'); return false; }
+        } catch (e) {
+          const m = String(e.message || e);
+          toast(/not confirmed/i.test(m) ? 'Аккаунт не подтверждён. Админу: в Supabase выключить «Confirm email» и выполнить supabase/confirm-users.sql'
+            : /invalid|credentials/i.test(m) ? 'Неверный логин или пароль'
+            : /sending|confirmation email|smtp|rate limit/i.test(m) ? 'Supabase пытается отправить письмо. Админу: выключить «Confirm email» (Authentication → Sign In / Providers) и нажать Save'
+            : /database error/i.test(m) ? 'Ошибка базы при регистрации. Админу: выполнить supabase/accounts.sql в Supabase'
+            : m, 'err');
+          return false;
+        }
         if (store.canWrite()) { await afterSbLogin(); return; }
         await reload(); const a = store.account() || {};
         toast(up ? 'Заявка отправлена. Когда админ выдаст роль — появится доступ' : `Вы вошли: ${a.callsign || a.login} · ${ROLE_RU[store.role()] || ''}`);
