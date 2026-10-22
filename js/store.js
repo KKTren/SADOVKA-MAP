@@ -3,7 +3,7 @@
 
    Файл data/games.json (версия 3):
    {
-     settings:  { grid:{cols,rows,x,y,cw,ch,angle,square}, border:{color,width}, signup:{ vk } },
+     settings:  { grid:{cols,rows,colLabels,rowLabels,x,y,cw,ch,angle,square}, border:{color,width}, signup:{ vk } },
      sides:     [{ id, name, color }],              // стороны: красная, синяя, серая…
      teams:     [{ id, name, logo, side, captain, city, since, vk, note, players:[{ id, callsign, role, rank, phone }] }],  // справочник команд; состав и note видны только админу
      info:      [{ id, title, body, photos }],      // разделы для новичков внизу сайта (правила, снаряжение, прокат…)
@@ -139,8 +139,13 @@
     const b0 = (d.settings && d.settings.border) || {};
     const settings = {
       // x,y — левый верхний угол сетки (доли ширины/высоты), cw/ch — размер клетки в метрах (null — растянуть на всю карту), angle — поворот в градусах
-      grid: { cols: clampI(g0.cols, gd.cols, 25), rows: clampI(g0.rows, gd.rows, 50), x: +g0.x || 0, y: +g0.y || 0,
-        cw: +g0.cw > 0 ? +g0.cw : null, ch: +g0.ch > 0 ? +g0.ch : null, angle: Math.max(-180, Math.min(180, +g0.angle || 0)), square: !!g0.square },
+      grid: (() => {
+        // свои подписи клеток (буквы по горизонтали, цифры по вертикали) в любом порядке; их число = число клеток
+        const lbl = (a, max, n) => { const l = arr(a).map(v => String(v ?? '').trim().toUpperCase().slice(0, n)).filter(Boolean).slice(0, max); return l.length ? l : null; };
+        const cl = lbl(g0.colLabels, 25, 3), rl = lbl(g0.rowLabels, 50, 4);
+        return { cols: cl ? cl.length : clampI(g0.cols, gd.cols, 25), rows: rl ? rl.length : clampI(g0.rows, gd.rows, 50), colLabels: cl, rowLabels: rl, x: +g0.x || 0, y: +g0.y || 0,
+          cw: +g0.cw > 0 ? +g0.cw : null, ch: +g0.ch > 0 ? +g0.ch : null, angle: Math.max(-180, Math.min(180, +g0.angle || 0)), square: !!g0.square };
+      })(),
       border: { color: color(b0.color, '#f2c230'), width: Math.min(12, Math.max(1, +b0.width || 4)) },
       signup: { vk: String((d.settings && d.settings.signup && d.settings.signup.vk) || '').slice(0, 300) },
       showRoster: d.settings && d.settings.showRoster != null ? !!d.settings.showRoster : true,

@@ -1476,3 +1476,32 @@ body.live-on #app { position: fixed; inset: 0; z-index: 5000; height: 100dvh; gr
 .lvqr__t { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .lvqr__t small { color: var(--muted); font-size: 12px; }
 .lvqr .lvshare { width: 100%; }
+
+/* ---------- лайф-карта: свободные кнопки, «только карта», размер значков, кабинет ---------- */
+.lvui > .lv-free { position: absolute; z-index: 2; width: 64px; height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px;
+  background: #121810ee; border: 1px solid var(--line-2); border-radius: 8px; color: var(--text); font: 500 10px var(--head); letter-spacing: .04em; text-transform: uppercase; box-shadow: 0 4px 14px #000a; touch-action: none; }
+.lvui > .lv-free b { font: 17px/1 var(--body); }
+.lvui > #lvMe.lv-free { background: #1d3a5c; border-color: #4ea3ff; color: #d8ecff; }
+.lvui > .lv-free.on { border-color: var(--amber); color: var(--amber); }
+.lv-dragging { outline: 2px dashed #ffd166; outline-offset: 2px; opacity: .9; }
+.lvui__bot button, .lvui > .lv-free { touch-action: none; }   /* иначе браузер считает перетаскивание прокруткой и обрывает его */
+.lvui__bot.lv-empty { display: none; }
+.lvui__show { display: none; position: absolute; right: max(10px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); width: 40px; height: 40px; border-radius: 50%;
+  background: #121810cc; border: 1px solid var(--line-2); color: var(--text); font-size: 18px; box-shadow: 0 3px 10px #0009; }
+#app.lv-clean .lvui__top, #app.lv-clean .lvui__bot, #app.lv-clean .lvui > .lv-free, #app.lv-clean .lvl, #app.lv-clean .lvui__side, #app.lv-clean .lvui__hint,
+#app.lv-clean .ctrl-col, #app.lv-clean .lvui__err { display: none !important; }
+#app.lv-clean .lvui__show { display: grid; place-items: center; }
+#app.live .leaflet-marker-pane .mk, #app.live .leaflet-placesPane-pane .mk { transform: scale(var(--mks, 1)); transform-origin: 50% 50%; }
+.lv--met .lv-em { border-color: #4ea3ff; box-shadow: 0 0 0 3px #4ea3ff55, 0 2px 6px #000c; }
+.pf-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; max-height: 46dvh; overflow-y: auto; }
+.pf-tm { cursor: pointer; }
+.pf-tm input { position: absolute; opacity: 0; }
+.pf-tm > span { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); text-align: center; height: 100%; }
+.pf-tm .lv-em { width: 40px; height: 40px; flex: none; }
+.pf-tm b { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
+.pf-tm input:checked + span { border-color: #ffd166; background: #2b2410; }
+.pf-tm input:focus-visible + span { outline: 2px solid var(--olive); }
+.lv--pl .lv__dot { position: absolute; inset: 3px; border-radius: 50%; background: #c3c4b2; border: 3px dashed #fff; box-shadow: 0 2px 6px #000c; }
+.lv--pl.lv--gt .lv-em { border-style: dashed; }
+.lv__lbl--p { background: #3a3f30e6; }
+.leaflet-marker-draggable .lv--pl { cursor: move; }
