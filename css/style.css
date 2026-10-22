@@ -1505,3 +1505,16 @@ body.live-on #app { position: fixed; inset: 0; z-index: 5000; height: 100dvh; gr
 .lv--pl.lv--gt .lv-em { border-style: dashed; }
 .lv__lbl--p { background: #3a3f30e6; }
 .leaflet-marker-draggable .lv--pl { cursor: move; }
+
+/* Скрытые переключатели внутри плиток: держим их внутри своей плитки, иначе окно уезжает вбок (горизонтальная прокрутка). */
+.sw, .radios label, .ipick label, .vpick label, .lvt, .acc-wish label, .pf-tm { position: relative; }
+.radios input, .vpick input, .lvt input, .acc-wish input, .pf-tm input { width: 1px; height: 1px; margin: 0; left: 0; top: 0; }
+dialog, #dlgForm, .dlg__body, .lvui__sheet, .lvl__b { overflow-x: hidden; }
+/* Низ окна (Удалить / Отмена / Сохранить): на узком экране переносим кнопки, а не обрезаем «Сохранить». */
+.dlg__foot { flex-wrap: wrap; }
+.dlg__foot .btn { min-width: 0; }
+@media (max-width: 480px) {
+  .dlg__foot .btn.danger { flex: 1 1 100%; order: 3; white-space: normal; }
+  .dlg__foot .sp { display: none; }
+  .dlg__foot .btn.ghost, .dlg__foot .btn.primary { flex: 1 1 0; }
+}
