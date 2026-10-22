@@ -776,7 +776,7 @@
       ${!ph.length ? `<div class="hgal__empty">${admin ? 'Фото пока нет — нажмите ✎' : ''}</div>` : ''}
       ${ph.map((p, i) => `<button class="hgal__img ${i ? '' : 'on'} ${(p.fit || gl.fit) === 'contain' ? 'contain' : ''}" data-hgal="${k}" data-i="${i}" aria-label="${esc(p.caption || 'Открыть фото')}"><img src="${esc(photoSrc(p.url, 900))}" alt="${esc(p.caption || '')}" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}
       ${gl.tag ? `<span class="hgal__tag">${esc(gl.tag)}</span>` : ''}
-      ${ph.length > 1 ? `<button class="hgal__nav prev" data-hgnav="-1" aria-label="Предыдущее фото">‹</button><button class="hgal__nav next" data-hgnav="1" aria-label="Следующее фото">›</button>` : ''}</div>`;
+      ${ph.length > 1 ? `<button class="hgal__nav hgal__nav--prev" data-hgnav="-1" aria-label="Предыдущее фото"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="hgal__nav hgal__nav--next" data-hgnav="1" aria-label="Следующее фото"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}</div>`;
     el.hidden = !ph.length && !gl.title && !admin;
     let i = 0; const items = el.querySelectorAll('.hgal__img');
     const show = n => { if (!items.length) return; items[i].classList.remove('on'); i = (n + items.length) % items.length; items[i].classList.add('on'); };
@@ -2945,7 +2945,8 @@
     if (S.live) exitLive(true);
     stopMode(); stopPlay && S.play && stopPlay(true);
     const role = token ? 'guest' : store.role(), viewer = role === 'guest' || role === 'player';   // игрок и гость только отмечают себя
-    let queue = []; try { queue = viewer ? [] : JSON.parse(ls.get('pm-live-q', '[]')) || []; } catch (e) { queue = []; }
+    let queue = []; try { queue = JSON.parse(ls.get('pm-live-q', '[]')) || []; } catch (e) { queue = []; }
+    if (viewer) queue = queue.filter(q => q.guest);   // админские метки из очереди игрок/гость отправить не может
     S.live = { game: game || null, viewer, role, token: token || '', rows: new Map(), since: null, skew: 0, lockAll: true, queue, online: null, lastOk: 0, timer: 0, gps: null, err: '', busy: false };
     document.body.classList.add('live-on'); app.classList.add('live');
     if (game) lvSelectGame(game);
@@ -2954,7 +2955,7 @@
     S.live.wantFs = false;   // полный экран — только кнопкой ⛶ (сам он сдвигал карту вниз)
     lvApplyOp(); if (lvPref().compass) setTimeout(() => S.live && lvCompass(true), 0);
     lvWake(); lvMapLock(!!ls.get('pm-live-maplock', false), true);
-    lvUi(); setTimeout(() => { map.invalidateSize(); setRot(+ls.get('pm-live-rot', 0) || 0); lvFit(); lvRose(); }, 30);
+    lvUi(); setTimeout(() => { map.invalidateSize(); setRot(0); lvFit(); }, 30);
     lvPoll(); lvSchedule();
     clearInterval(lvTick); lvTick = setInterval(() => { if (S.live) { lvRenderMarks(); lvStatus(); } }, 15000);
     document.addEventListener('visibilitychange', lvVis);
@@ -2984,9 +2985,27 @@
   const lvStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
   function lvFsOn() {
     if (!lvFsCan() || document.fullscreenElement) return;
-    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
-      .then(() => { try { screen.orientation.lock('portrait').catch(() => {}); } catch (e) {} })
+    return document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => { if (S.live && S.live.oriWant) lvOriLock(S.live.oriWant, true); })   // после разблокировки телефона — снова закрепить, как было
       .catch(() => {});
+  }
+  /* Ориентация экрана: по умолчанию поворачивается вместе с телефоном. Кнопка «закрепить» фиксирует
+     текущее положение (чтобы при ходьбе экран не переворачивался). Браузер разрешает это только в полном экране (Android). */
+  const lvOriType = () => (screen.orientation && screen.orientation.type) || (matchMedia('(orientation: landscape)').matches ? 'landscape-primary' : 'portrait-primary');
+  async function lvOriLock(type, quiet) {
+    const L_ = S.live; if (!L_) return;
+    if (!(screen.orientation && screen.orientation.lock)) { if (!quiet) toast('Этот телефон не даёт сайту закрепить поворот — включите блокировку поворота в шторке телефона', 'err'); return; }
+    try {
+      if (!document.fullscreenElement) { L_.wantFs = true; await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); }
+      await screen.orientation.lock(type); L_.oriWant = type; L_.oriOn = true;
+      if (!quiet) toast(/landscape/.test(type) ? 'Экран закреплён боком' : 'Экран закреплён вертикально');
+    } catch (e) { L_.oriOn = false; if (!quiet) toast('Не получилось закрепить поворот — включите блокировку поворота в шторке телефона', 'err'); }
+    lvUiSync();
+  }
+  function lvOriToggle() {
+    const L_ = S.live; if (!L_) return;
+    if (L_.oriOn) { try { screen.orientation.unlock(); } catch (e) {} L_.oriOn = false; L_.oriWant = null; toast('Экран снова поворачивается вместе с телефоном'); lvUiSync(); return; }
+    lvOriLock(lvOriType());
   }
   function lvFsToggle() {
     if (lvFsCan()) { if (document.fullscreenElement) { S.live.wantFs = false; document.exitFullscreen().catch(() => {}); } else { S.live.wantFs = true; lvFsOn(); } return; }
@@ -2994,7 +3013,9 @@
     openDialog({ title: 'Полный экран на iPhone', body: `<div class="note">Safari на iPhone не даёт сайтам убрать свою панель. Зато можно открыть сайт как приложение — без адресной строки:<br><br>
       1. Нажмите <b>«Поделиться»</b> (квадрат со стрелкой вверх).<br>2. Выберите <b>«На экран „Домой“»</b> → «Добавить».<br>3. Открывайте сайт значком с экрана «Домой» и войдите как админ — дальше лайф-карта на весь экран.</div>` });
   }
-  document.addEventListener('fullscreenchange', () => { if (map) setTimeout(() => map.invalidateSize(), 50); lvUiSync(); });
+  document.addEventListener('fullscreenchange', () => { if (map) setTimeout(() => map.invalidateSize(), 50); if (S.live && !document.fullscreenElement) S.live.oriOn = false; lvUiSync(); });
+  addEventListener('resize', () => { if (S.live && map) { clearTimeout(lvRsT); lvRsT = setTimeout(() => map.invalidateSize(), 120); } });
+  let lvRsT = 0;
   // телефон заблокировали — браузер сам вышел из полного экрана; первое касание после разблокировки вернёт его
   const lvFsBack = e => { if (S.live && S.live.wantFs && !document.fullscreenElement && lvFsCan() && !(e.target.closest && e.target.closest('#lvFs, #lvExit'))) lvFsOn(); };
   ['click', 'touchend'].forEach(t => document.addEventListener(t, lvFsBack, true));
@@ -3053,8 +3074,9 @@
       L_.online = false;
       const m = String(e.message || e);
       if (/link_expired/.test(m)) { L_.err = 'Ссылка устарела или отключена — попросите новую'; clearTimeout(L_.timer); L_.dead = true; }
-      else if (/not_admin/.test(m)) L_.err = 'Вход истёк — войдите заново как админ';
-      else if (/live_(pull|put|view)|Could not find the function|404/.test(m)) L_.err = 'В базе нет таблиц лайф-карты — выполните supabase/live.sql в Supabase';
+      else if (/not_admin/.test(m)) L_.err = 'Нет доступа: вход истёк или роль не выдана — войдите заново';
+      else if (/live_(pull|put|view|player)|Could not find the function|404/.test(m)) L_.err = 'В базе нет функций лайф-карты — выполните supabase/live.sql в Supabase';
+      else if (e.status) L_.err = 'База ответила ошибкой: ' + m;   // это не обрыв сети — покажем причину
       else L_.err = '';
     } finally { L_.busy = false; if (S.live === L_) lvStatus(); }
   }
@@ -3062,7 +3084,16 @@
     const L_ = S.live; if (!L_) return;
     while (L_.queue.length) {
       const m = L_.queue[0];
-      const t = m.guest ? (L_.token ? await store.live.guestPut(L_.token, m) : await store.live.playerPut(m)) : await store.live.put(m);                          // ошибка — остаёмся в очереди, отправим при следующей связи
+      let t;
+      try { t = m.guest ? (L_.token ? await store.live.guestPut(L_.token, m) : await store.live.playerPut(m)) : await store.live.put(m); }
+      catch (e) {
+        // нет сети — метка ждёт в очереди. База ответила «нельзя» — повторять бессмысленно: убираем, иначе очередь встанет навсегда
+        if (!(e.status >= 400 && e.status < 500) || /link_expired/.test(e.message || '')) throw e;
+        L_.queue.shift(); ls.set('pm-live-q', JSON.stringify(L_.queue));
+        const row = L_.rows.get(m.id); if (row && row.pending && row.qid === m.qid) L_.rows.delete(m.id);
+        const why = /not_admin/.test(e.message) ? 'нет прав' : /bad_id/.test(e.message) ? 'чужая метка' : 'база её отклонила'; console.warn('Метка отклонена', m, e.message);
+        toast(`Метка не сохранилась (${why}) — убрана`, 'err'); L_.drawn = false; continue;
+      }
       L_.queue.shift(); ls.set('pm-live-q', JSON.stringify(L_.queue));
       const row = L_.rows.get(m.id);
       if (row && row.pending && row.qid === m.qid) { row.pending = false; delete row.qid; if (typeof t === 'string') row.updated_at = t; }
@@ -3575,8 +3606,7 @@
 
   /* ---------- поворот и роза ветров ---------- */
   function lvFit() { const b = D().border; if (b.length >= 3) map.fitBounds(L.latLngBounds(polyLL(b)), { paddingTopLeft: [10, 60], paddingBottomRight: [10, 70] }); else fitAll(); }
-  function lvRose() { const r = $('#lvRose'); if (r) r.querySelector('svg').style.transform = `rotate(${ROT * 90}deg)`; const t = $('#lvRot'); if (t) t.classList.toggle('on', ROT !== 0); }
-  function lvRotate(to) { setRot(to != null ? to : ROT + 1); ls.set('pm-live-rot', ROT); lvRose(); if (S.live) lvRenderMarks(); toast(ROT ? `Карта повёрнута на ${ROT * 90}°` : 'Север вверху'); }
+  function lvRose() {}
 
   /* ---------- «Слои»: что видно на моём экране ---------- */
   function lvLayersSheet() {
@@ -3686,7 +3716,7 @@
     const old = $('#liveUi'); if (old) old.remove();
     const v = S.live.viewer, box = document.createElement('div'); box.id = 'liveUi'; box.className = 'lvui';
     box.innerHTML = `<div class="lvui__top"><span class="lvui__st" id="lvSt"></span><div class="lvui__ttl"><b>${v ? 'Лайф-карта' : 'Лайф-карта'}</b><span id="lvGame"></span></div><button type="button" class="lvui__fq" id="lvFreq" ${v ? 'disabled' : ''}></button>
-        ${v ? '' : '<button type="button" class="lvui__ib" id="lvMapLock" title="Закрепить карту">✋</button>'}<button type="button" class="lvui__ib" id="lvFs" title="Полный экран">⛶</button>
+        ${v ? '' : '<button type="button" class="lvui__ib" id="lvMapLock" title="Закрепить карту">✋</button>'}<button type="button" class="lvui__ib" id="lvOri" title="Закрепить поворот экрана">↻</button><button type="button" class="lvui__ib" id="lvFs" title="Полный экран">⛶</button>
         <button type="button" class="lvui__x" id="lvExit" title="${v ? 'Перейти на сайт' : 'Выйти из лайф-карты'}">${v ? 'На сайт' : '✕'}</button></div>
       <div class="lvui__err" id="lvErr" hidden></div>
       ${v ? '' : `<div class="lvui__hint" id="lvHint">2× нажатие — я тут · удержать — метки · ✎ — путь</div>
@@ -3697,19 +3727,18 @@
         <button type="button" id="lvGps"><b>⌖</b><span>GPS</span></button>
         <button type="button" id="lvMore"><b>☰</b>Ещё</button></div>`}
       <div class="lvl" id="lvList"></div>
-      <div class="lvui__side"><button type="button" class="lvui__rot" id="lvRot" title="Повернуть карту на 90°">⟳<small>90°</small></button>
-        <button type="button" class="lvui__rose" id="lvRose" title="Компас: где север. Нажмите — север вверх"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#0e130ccc" stroke="#47583b"/><path d="M20 4l5 16h-10z" fill="#ef5a42"/><path d="M20 36l5-16h-10z" fill="#cfd6c2"/><text x="20" y="13.5" text-anchor="middle" font-size="7" font-weight="700" fill="#fff">С</text></svg></button></div>
+      <div class="lvui__side"><button type="button" class="lvui__rose" id="lvRose" title="Север — вверху карты"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="#0e130ccc" stroke="#47583b"/><path d="M20 4l5 16h-10z" fill="#ef5a42"/><path d="M20 36l5-16h-10z" fill="#cfd6c2"/><text x="20" y="13.5" text-anchor="middle" font-size="7" font-weight="700" fill="#fff">С</text></svg></button></div>
       <div class="lvmsg" id="lvMsg" hidden></div>
       ${v ? `<div class="lvui__hint" id="lvHint">2× нажатие по карте — отметить, где вы</div>
       <div class="lvui__bot lvui__bot--v"><button type="button" id="lvMe"><b>◎</b>Я тут</button><button type="button" id="lvNick"><b>✎</b><span>Позывной</span></button><button type="button" id="lvLayers"><b>◫</b>Слои</button></div>` : ''}`;
     $('.stage').appendChild(box);
     $('#lvExit').onclick = () => exitLive();
     $('#lvFs').onclick = lvFsToggle;
+    $('#lvOri').onclick = lvOriToggle;
     $('#lvLayers').onclick = lvLayersSheet;
-    $('#lvRot').onclick = () => lvRotate();
-    $('#lvRose').onclick = () => lvRotate(0);
+    $('#lvRose').onclick = () => toast('Север — вверху карты');
     $('#lvFreq').onclick = lvFreqEdit;
-    ['pointerdown', 'dblclick', 'contextmenu'].forEach(t => [$('#lvRot'), $('#lvRose'), $('#lvMsg')].forEach(el => el.addEventListener(t, e => e.stopPropagation())));
+    ['pointerdown', 'dblclick', 'contextmenu'].forEach(t => [$('#lvRose'), $('#lvMsg')].forEach(el => el.addEventListener(t, e => e.stopPropagation())));
     if (v) { $('#lvMe').onclick = () => lvGpsFix(true);
       const upd = (n, t) => { const g = LVrow().get('gu:' + lvDevice()); if (g && !g.gone) lvPut('guest', g.id, Object.assign({}, g.data, { name: n, team: t })); };
       $('#lvNick').onclick = () => lvAcc() ? openProfileForm(() => { const a = store.account(); upd(a.callsign || a.login, a.team); }) : lvAskNick(upd); }
@@ -3729,6 +3758,8 @@
     const L_ = S.live; if (!L_) return; const g = liveGame();
     const ge = $('#lvGame'); if (ge) ge.textContent = g ? `${fmtDate(g.date)} · ${g.title}` : '';
     const ml = $('#lvMapLock'); if (ml) { ml.classList.toggle('on', !!L_.mapLock); ml.textContent = L_.mapLock ? '🔒' : '✋'; ml.title = L_.mapLock ? 'Карта закреплена — нажмите, чтобы снова двигать' : 'Закрепить карту (не сдвинется от касаний)'; }
+    const ori = $('#lvOri'); if (ori) { ori.classList.toggle('on', !!L_.oriOn); ori.textContent = L_.oriOn ? '🔒' : '↻'; ori.title = L_.oriOn ? 'Поворот закреплён — нажмите, чтобы экран снова поворачивался с телефоном' : 'Закрепить поворот экрана как сейчас';
+      ori.hidden = !(screen.orientation && screen.orientation.lock) || (!lvFsCan() && !lvStandalone()); }
     const fs = $('#lvFs'); if (fs) { const on = !!document.fullscreenElement; fs.classList.toggle('on', on); fs.hidden = lvStandalone() && !lvFsCan(); fs.title = on ? 'Выйти из полного экрана' : 'Полный экран'; }
     const dr = $('#lvDraw'); if (dr) { dr.classList.toggle('on', !!L_.draw); dr.querySelector('span').textContent = L_.draw ? 'Отмена' : 'Путь'; }
     const gp = $('#lvGps'); if (gp) { gp.classList.toggle('on', !!L_.gps); gp.querySelector('span').textContent = L_.gps ? 'GPS вкл' : 'GPS'; }
@@ -3747,7 +3778,7 @@
     openDialog({
       title: 'Лайф-карта',
       body: `<div class="lvmore">
-        <button type="button" class="btn" data-lv="share">🔗 Поделиться ссылкой (только просмотр)</button>
+        ${lvAdmin() ? '<button type="button" class="btn" data-lv="share">🔗 Ссылки и QR-код (только просмотр)</button>' : ''}
         <button type="button" class="btn" data-lv="log">☰ Журнал игры</button>
         <button type="button" class="btn" data-lv="name">✎ Позывной: ${esc(lvName())}</button>
         <button type="button" class="btn" data-lv="game">⇄ Другая игра</button>
@@ -3772,21 +3803,55 @@
     lp.filter(p => p.edited).forEach(p => { const q = g.points.find(z => z.id === p.id); if (!q) return; q.x = p.x; q.y = p.y; q.after = p.live || ''; if (isFuture(g)) q.before = q.after; n++; });
     await commit(`Итог перенесён в игру: ${n} ${plural(n, 'точка', 'точки', 'точек')}`);
   }
-  function lvShareForm() {
-    const L_ = S.live, base = location.origin + location.pathname;
+  /** QR-код ссылки: библиотека грузится только когда нужна. */
+  function lvQr(box, url) {
+    const draw = () => { const q = window.qrcode(0, 'M'); q.addData(url); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 3, scalable: true }); };
+    if (window.qrcode) return draw();
+    box.innerHTML = '<p class="hint">Рисую QR-код…</p>';
+    const sc = document.createElement('script'); sc.src = 'vendor/qrcode/qrcode.js'; sc.onload = draw; sc.onerror = () => { box.innerHTML = '<p class="hint">Не удалось загрузить QR-код — отправьте ссылку текстом.</p>'; }; document.head.appendChild(sc);
+  }
+  /** Ссылки для просмотра: создать с подписью, список действующих (все игры), QR, копировать, отключить по одной. Только админ. */
+  function lvShareForm(showTk) {
+    const L_ = S.live, base = location.origin + location.pathname, url = tk => `${base}?live=${tk}`;
+    const gname = id => { const g = D().games.find(x => x.id === id); return g ? `${fmtDate(g.date)} · ${g.title}` : 'игра удалена'; };
+    const until = iso => { const d = new Date(iso), h = Math.round((d - Date.now()) / 3600e3); return `до ${d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}${h > 0 ? ` (≈${h} ч)` : ' (меньше часа)'}`; };
     openDialog({
-      title: 'Поделиться лайф-картой',
-      body: `<div class="note">По ссылке видно точки и метки этой игры: кто где, приказы, противник. Двигать и ставить метки по ссылке нельзя. Ссылка перестанет работать через выбранное время или когда вы её отключите.${store.live.shared ? '' : '<br><b style="color:var(--amber)">Без базы ссылка откроется только в этом браузере.</b>'}</div>
-        <div class="row2">${fld('Ссылка работает', `<select name="h"><option value="3">3 часа</option><option value="6" selected>6 часов</option><option value="12">12 часов</option><option value="24">сутки</option><option value="72">3 дня</option></select>`)}<div class="fld"><span>&nbsp;</span><button type="button" class="btn primary" id="lvMk">Создать ссылку</button></div></div>
-        <div class="lvshare" id="lvLink" hidden><input readonly id="lvUrl"><button type="button" class="btn" id="lvCopy">Копировать</button></div>
-        <button type="button" class="link danger" id="lvStop">Отключить все ссылки на эту игру</button>`,
+      title: 'Ссылки на лайф-карту',
+      body: `<div class="note">По ссылке видно точки и метки игры; гости отмечают себя и получают ваши сообщения. Ставить приказы и двигать точки по ссылке нельзя. Ссылки видит только админ.${store.live.shared ? '' : '<br><b style="color:var(--amber)">Без базы ссылка откроется только в этом браузере.</b>'}</div>
+        <div class="sec__t">Новая ссылка — на эту игру: ${esc(gname(L_.game))}</div>
+        <div class="row2">${fld('Для кого (подпись)', '<input name="lbl" maxlength="60" placeholder="например, гости субботы">')}${fld('Работает', `<select name="h"><option value="3">3 часа</option><option value="6" selected>6 часов</option><option value="12">12 часов</option><option value="24">сутки</option><option value="72">3 дня</option></select>`)}</div>
+        <button type="button" class="btn primary" id="lvMk">Создать ссылку и QR-код</button>
+        <div class="lvqr" id="lvQrBox" hidden><div class="lvqr__img" id="lvQr"></div><div class="lvqr__t" id="lvQrT"></div><div class="lvshare"><input readonly id="lvUrl"><button type="button" class="btn" id="lvCopy">Копировать</button></div></div>
+        <div class="sec__t">Действующие ссылки</div><div id="lvShares"><p class="hint">Загружаю…</p></div>`,
       onOpen: f => {
-        f.querySelector('#lvMk').onclick = async () => {
-          try { const tk = await store.live.shareNew(L_.game, +f.querySelector('[name=h]').value); const u = `${base}?live=${tk}`; f.querySelector('#lvUrl').value = u; f.querySelector('#lvLink').hidden = false; f.querySelector('#lvUrl').select(); }
-          catch (e) { toast(/function|404/.test(e.message) ? 'Выполните supabase/live.sql в Supabase' : 'Нет связи — попробуйте ещё раз', 'err'); }
+        const showQr = (tk, label, game) => { const u = url(tk); f.querySelector('#lvQrBox').hidden = false; f.querySelector('#lvUrl').value = u;
+          f.querySelector('#lvQrT').innerHTML = `<b>${esc(label || 'без подписи')}</b><small>${esc(gname(game))}</small>`; lvQr(f.querySelector('#lvQr'), u);
+          f.querySelector('#lvQrBox').scrollIntoView({ block: 'nearest' }); };
+        let list = [];
+        const load = async () => {
+          const box = f.querySelector('#lvShares');
+          try { list = await store.live.shareList(); } catch (e) { box.innerHTML = `<p class="hint">${/function|404/.test(e.message) ? 'Выполните обновлённый supabase/live.sql в Supabase' : 'Нет связи — список не загрузился'}</p>`; return; }
+          box.innerHTML = list.length ? list.map(x => `<div class="lvsh" data-tk="${esc(x.token)}"><div class="lvsh__t"><b>${esc(x.label || 'без подписи')}</b><small>${esc(gname(x.game_id))} · ${esc(until(x.expires_at))}${x.created_by ? ' · ' + esc(String(x.created_by).split('@')[0]) : ''}</small></div>
+              <button type="button" class="btn" data-qr title="Показать QR-код">QR</button><button type="button" class="btn" data-cp title="Копировать ссылку">⧉</button><button type="button" class="btn danger" data-off title="Отключить">✕</button></div>`).join('')
+            : '<p class="hint">Действующих ссылок нет.</p>';
+          if (showTk) { const x = list.find(y => y.token === showTk); if (x) showQr(x.token, x.label, x.game_id); showTk = null; }
         };
-        f.querySelector('#lvCopy').onclick = async () => { const i = f.querySelector('#lvUrl'); try { await navigator.clipboard.writeText(i.value); toast('Ссылка скопирована'); } catch (e) { i.select(); document.execCommand('copy'); toast('Ссылка скопирована'); } };
-        f.querySelector('#lvStop').onclick = async () => { try { await store.live.shareStop(L_.game); toast('Все ссылки на эту игру отключены'); $('#dlg').close(); } catch (e) { toast('Нет связи — попробуйте ещё раз', 'err'); } };
+        load();
+        f.querySelector('#lvMk').onclick = async () => {
+          const lbl = f.querySelector('[name=lbl]').value.trim();
+          try { const tk = await store.live.shareNew(L_.game, +f.querySelector('[name=h]').value, lbl); f.querySelector('[name=lbl]').value = ''; showQr(tk, lbl, L_.game); load(); toast('Ссылка создана'); }
+          catch (e) { toast(/function|404/.test(e.message) ? 'Выполните обновлённый supabase/live.sql в Supabase' : /not_admin/.test(e.message) ? 'Ссылки выдаёт только админ' : 'Нет связи — попробуйте ещё раз', 'err'); }
+        };
+        const copy = async u => { try { await navigator.clipboard.writeText(u); } catch (e) { const i = f.querySelector('#lvUrl'); i.value = u; i.select(); document.execCommand('copy'); } toast('Ссылка скопирована'); };
+        f.querySelector('#lvCopy').onclick = () => copy(f.querySelector('#lvUrl').value);
+        f.querySelector('#lvShares').addEventListener('click', async e => {
+          const r = e.target.closest('[data-tk]'); if (!r) return; const x = list.find(y => y.token === r.dataset.tk); if (!x) return;
+          if (e.target.closest('[data-qr]')) showQr(x.token, x.label, x.game_id);
+          if (e.target.closest('[data-cp]')) copy(url(x.token));
+          const off = e.target.closest('[data-off]');
+          if (off) { if (!off.classList.contains('armed')) { off.classList.add('armed'); off.textContent = 'Точно?'; return; }
+            try { await store.live.shareDel(x.token); toast(`Ссылка «${x.label || 'без подписи'}» отключена`); if (f.querySelector('#lvUrl').value === url(x.token)) f.querySelector('#lvQrBox').hidden = true; load(); } catch (err) { toast('Нет связи — попробуйте ещё раз', 'err'); } }
+        });
       }
     });
   }

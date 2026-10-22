@@ -282,7 +282,9 @@
       async view(tk, since) { const st = rd(), sh = st.shares[tk]; if (!sh || sh.exp < Date.now()) throw new Error('link_expired');
         return { now: new Date().toISOString(), game: sh.game, rows: rows(st, sh.game, since).map(r => Object.assign({}, r, { author: '' })) }; },
       async journal(g, n = 200) { return rd().log.filter(l => l.game_id === g).slice(-n).reverse(); },
-      async shareNew(g, h) { const st = rd(), tk = uid() + uid(); st.shares[tk] = { game: g, exp: Date.now() + h * 3600e3 }; wr(st); return tk; },
+      async shareNew(g, h, label) { const st = rd(), tk = (uid() + uid()).replace(/-/g, ''); st.shares[tk] = { game: g, exp: Date.now() + h * 3600e3, label: label || '', at: Date.now() }; wr(st); return tk; },
+      async shareList() { const st = rd(); return Object.entries(st.shares).filter(([, v]) => v.exp > Date.now()).map(([k, v]) => ({ token: k, game_id: v.game, label: v.label || '', created_by: 'этот браузер', created_at: new Date(v.at || Date.now()).toISOString(), expires_at: new Date(v.exp).toISOString() })).sort((a, b) => b.created_at.localeCompare(a.created_at)); },
+      async shareDel(tk) { const st = rd(); delete st.shares[tk]; wr(st); },
       async shareStop(g) { const st = rd(); for (const k in st.shares) if (st.shares[k].game === g) delete st.shares[k]; wr(st); }
     };
   }
@@ -436,7 +438,9 @@
         guestPut: (tk, m) => rpc('live_guest_put', { p_token: tk, p_id: m.id, p_data: m.data || {}, p_gone: !!m.gone }),
         playerPut: m => rpc('live_player_put', { p_game: m.game, p_id: m.id, p_data: m.data || {}, p_gone: !!m.gone }),
         journal: (g, n = 200) => rpc('live_journal', { p_game: g, p_limit: n }),
-        shareNew: (g, h) => rpc('live_share_new', { p_game: g, p_hours: h }),
+        shareNew: (g, h, label) => rpc('live_share_new', { p_game: g, p_hours: h, p_label: label || '' }),
+        shareList: () => rpc('live_share_list'),
+        shareDel: tk => rpc('live_share_del', { p_token: tk }),
         shareStop: g => rpc('live_share_stop', { p_game: g })
       }
     };
