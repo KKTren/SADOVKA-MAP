@@ -5,6 +5,12 @@
 (async function () {
   'use strict';
   const C = window.APP_CONFIG;
+  /* Один код на двоих: сайт-визитка (index.html) и приложение «Садовка Лайф» (app/index.html).
+     В приложении — вход, роли и лайф-карта, всё работает без сети. На сайте этого больше нет. */
+  const APP = window.APP_MODE === 'app';
+  if (APP) document.body.classList.add('app-mode');
+  const appUrl = () => new URL(C.appUrl || 'app/', document.baseURI).href;
+  const openApp = () => { window.open(appUrl(), '_blank', 'noopener'); };
   const $ = s => document.querySelector(s);
   const app = $('#app');
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1792,6 +1798,7 @@
 
   /* ---------- выбор ---------- */
   function syncHash() {
+    if (APP) return;   // в приложении адрес не меняем: base href="../" увёл бы его на сайт
     const q = new URLSearchParams();
     if (S.scId) q.set('s', S.scId); if (S.gameId && S.scId) q.set('g', S.gameId);
     if (S.pointId) q.set('p', S.pointId); if (S.placeId) q.set('o', S.placeId);
@@ -2645,9 +2652,9 @@
     document.body.classList.toggle('is-admin', on);
     const role = store.role ? store.role() : (on ? 'admin' : ''), sb = store.mode === 'supabase';
     $('#btnLogin').classList.toggle('on', !!role);
-    $('#btnLogin').hidden = sb ? false : !(on || wantsAdmin());   // с базой вход виден всем: игроки и командиры тоже входят
-    $('#btnLogin').title = role ? `Аккаунт: ${ROLE_RU[role] || role}` : sb ? 'Войти или зарегистрироваться' : 'Вход для админа';
-    $('#btnLive').hidden = !['player', 'commander'].includes(role);
+    $('#btnLogin').hidden = !(on || role || wantsAdmin());   // на сайте входят только админы (?admin); игроки — в приложении
+    $('#btnLogin').title = role ? `Аккаунт: ${ROLE_RU[role] || role}` : 'Вход для админа';
+    $('#btnLive').hidden = APP || C.appButton === false;   // кнопка «Лайф-карта» в шапке сайта ведёт в приложение
     $('#admEditGame').disabled = !curGame();
     const noMap = isMedia(curGame());   // в игре без карты рисовать по карте нечего
     $('#admAddPoint').disabled = $('#admOwner').disabled = $('#admArrow').disabled = !curGame() || noMap;
@@ -2693,7 +2700,7 @@
     const up = mode === 'up';
     openDialog({
       title: up ? 'Регистрация' : 'Вход', submit: up ? 'Отправить заявку' : 'Войти',
-      body: `<div class="acc-tabs"><button type="button" class="${up ? '' : 'on'}" data-mode="in">Вход</button><button type="button" class="${up ? 'on' : ''}" data-mode="up">Регистрация</button></div>` +
+      body: (APP ? `<div class="acc-tabs"><button type="button" class="${up ? '' : 'on'}" data-mode="in">Вход</button><button type="button" class="${up ? 'on' : ''}" data-mode="up">Регистрация</button></div>` : '') +
         (up ? fld('Логин', '<input name="login" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_.\\-]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="sokol">', 'Латинские буквы, цифры, точка, _ и −. Им вы будете входить.') +
           fld('Пароль', '<input type="password" name="pass" required minlength="6" autocomplete="new-password">', 'Не короче 6 знаков. Забудете — админ задаст новый.') +
           fld('Позывной на карте', '<input name="callsign" required maxlength="24" placeholder="Сокол">') +
@@ -2701,7 +2708,8 @@
           `<div class="fld"><span>Кем хотите быть</span><div class="acc-wish">${WISH.map(([k, n, d], i) => `<label><input type="radio" name="wish" value="${k}" ${i ? '' : 'checked'}><span><b>${n}</b><small>${d}</small></span></label>`).join('')}</div><small>Права даёт админ — до этого будет «заявка на рассмотрении».</small></div>`
         : fld('Логин', '<input name="login" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="логин или почта админа">') +
           fld('Пароль', '<input type="password" name="pass" required autocomplete="current-password">') +
-          `<div class="note">Нет аккаунта? Откройте вкладку «Регистрация». Забыли пароль — напишите админу, он задаст новый.</div>`),
+          (APP ? `<div class="note">Нет аккаунта? Откройте вкладку «Регистрация». Забыли пароль — напишите админу, он задаст новый.</div>`
+            : `<div class="note">Вход на сайте — для админов. Игроки и командиры входят в приложении «Лайф-карта»: <a href="${esc(appUrl())}" target="_blank" rel="noopener">открыть</a>.</div>`)),
       onOpen: f => f.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => openLoginSb(b.dataset.mode)),
       onSubmit: async fd => {
         try {
@@ -2737,7 +2745,7 @@
           <button type="button" class="btn" data-a="prof">Позывной и команда</button><button type="button" class="btn" data-a="pass">Сменить пароль</button><button type="button" class="btn danger" data-a="out">Выйти</button></div>`,
       onOpen: f => f.addEventListener('click', async e => {
         const b = e.target.closest('[data-a]'); if (!b) return; const k = b.dataset.a;
-        if (k === 'live') { $('#dlg').close(); openLiveFor(); }
+        if (k === 'live') { $('#dlg').close(); APP ? openLiveFor() : openApp(); }
         if (k === 'check') { await store.refreshProfile(); await reload(); $('#dlg').close(); openAccount(); toast(store.role() === 'pending' ? 'Пока на рассмотрении' : 'Роль: ' + ROLE_RU[store.role()]); }
         if (k === 'people') { $('#dlg').close(); openPeople(); }
         if (k === 'prof') { $('#dlg').close(); openProfileForm(); }
@@ -2842,7 +2850,7 @@
     });
   }
   $('#btnLogin').onclick = openLogin;
-  $('#btnLive').onclick = openLiveFor;
+  $('#btnLive').onclick = () => APP ? openLiveFor() : openApp();
   $('#admNewScenario').onclick = () => openScenarioForm(null);
   $('#admNewGame').onclick = () => openGameForm(null);
   $('#admAddPoint').onclick = () => S.mode ? stopMode() : startPick('point');
@@ -2865,7 +2873,7 @@
   mi('#admEditScenario', () => curScenario() && openScenarioForm(curScenario()));
   mi('#admEditGame', () => curGame() && openGameForm(curGame()));
   $('#admSettings').onclick = () => { closeMenu(); openSettings(); };
-  $('#admLive').onclick = () => { closeMenu(); openLiveStart(); };
+  $('#admLive').onclick = () => { closeMenu(); APP ? openLiveStart() : openApp(); };
   $('#admPeople').onclick = () => { closeMenu(); if (store.mode !== 'supabase') { toast('Аккаунты работают только с базой Supabase', 'err'); return; } openPeople(); };
   $('#admHero').onclick = () => { closeMenu(); openHeroForm(null); };
   $('#admPass').onclick = () => { closeMenu(); openPassForm(); };
@@ -2978,14 +2986,17 @@
     let queue = []; try { queue = JSON.parse(ls.get('pm-live-q', '[]')) || []; } catch (e) { queue = []; }
     if (viewer) queue = queue.filter(q => q.guest);   // админские метки из очереди игрок/гость отправить не может
     S.live = { game: game || null, viewer, role, token: token || '', rows: new Map(), since: null, skew: 0, lockAll: true, queue, online: null, lastOk: 0, timer: 0, gps: null, err: '', busy: false };
+    lvCacheLoad(S.live);   // последние метки этой игры из памяти телефона — карта не пустая, даже если сети нет
+    if (APP) { appHomeHide(); if (!token) ls.set('pm-app-last', game || ''); }
     document.body.classList.add('live-on'); app.classList.add('live');
-    if (game) lvSelectGame(game);
+    if (S.live.game) lvSelectGame(S.live.game);
     if (!liveLayer) { map.createPane('live').style.zIndex = 640; liveLayer = L.layerGroup().addTo(map); } else liveLayer.addTo(map);
     map.doubleClickZoom.disable(); map.options.inertia = false;   // карта не «уезжает» после свайпа
     S.live.wantFs = false;   // полный экран — только кнопкой ⛶ (сам он сдвигал карту вниз)
     lvApplyOp(); if (lvPref().compass) setTimeout(() => S.live && lvCompass(true), 0);
     lvWake(); lvMapLock(!!ls.get('pm-live-maplock', false), true);
     lvUi(); setTimeout(() => { map.invalidateSize(); setRot(0); lvFit(); }, 30);
+    if (S.live.rows.size) { S.live.drawn = true; renderMap(); }
     lvPoll(); lvSchedule();
     clearInterval(lvTick); lvTick = setInterval(() => { if (S.live) { lvRenderMarks(); lvStatus(); } }, 15000);
     document.addEventListener('visibilitychange', lvVis);
@@ -3007,6 +3018,7 @@
     if (L_.viewer) { const u = new URL(location.href); u.searchParams.delete('live'); history.replaceState(null, '', u.pathname + u.search + location.hash); }
     setTimeout(() => map.invalidateSize(), 30);
     if (!silent) refresh();
+    if (APP && !silent) { ls.set('pm-app-last', ''); appHome(); appFresh(); }   // вышел сам — в следующий раз приложение откроется с главного экрана
   }
   const lvVis = () => { if (S.live && !document.hidden) { lvPoll(); lvSchedule(); lvWake(); } };
 
@@ -3095,6 +3107,7 @@
       });
       if (!L_.since) L_.since = r.now;
       L_.online = true; L_.lastOk = Date.now(); L_.err = L_.err && /не найдена/.test(L_.err) ? L_.err : '';
+      lvCacheSave(L_); if (APP) appFresh();
       if (changedPts || !L_.drawn) { L_.drawn = true; renderMap(); } else lvRenderMarks();
       lvGuestInbox();
       { L_.acks = L_.acks || {}; LVrow().forEach(g => { if ((g.kind !== 'guest' && g.kind !== 'ack') || !g.data) return; const a = g.data.ack || '';
@@ -3130,6 +3143,30 @@
       if (row && row.pending && row.qid === m.qid) { row.pending = false; delete row.qid; if (typeof t === 'string') row.updated_at = t; }
     }
   }
+  /* ---------- память телефона: последние метки игры ----------
+     После каждого удачного обмена с базой метки сохраняются. Открыли приложение без сети —
+     видно то, что было при последней связи (и сколько минут назад), а свои новые метки ждут в очереди. */
+  const lvCacheKey = L_ => 'pm-live-c:' + (L_.token ? 'tk:' + L_.token : L_.game || '');
+  let lvCacheT = 0;
+  function lvCacheSave(L_, now) {
+    if (!now) { clearTimeout(lvCacheT); lvCacheT = setTimeout(() => lvCacheSave(L_, true), 4000); return; }
+    if (!L_.game && !L_.token) return;
+    const rows = [...L_.rows.values()].filter(r => !r.pending).map(r => ({ id: r.id, game_id: r.game_id, kind: r.kind, data: r.data, gone: r.gone, author: r.author, updated_at: r.updated_at }));
+    ls.set(lvCacheKey(L_), { game: L_.game, rows, since: L_.since, skew: L_.skew, at: L_.lastOk || Date.now() });
+  }
+  function lvCacheLoad(L_) {
+    const c = ls.get(lvCacheKey(L_), null);
+    if (c && Array.isArray(c.rows)) {
+      c.rows.forEach(r => L_.rows.set(r.id, r));
+      L_.since = c.since || null; L_.skew = +c.skew || 0; L_.cacheAt = +c.at || 0;
+      if (!L_.game && c.game) L_.game = c.game;
+    }
+    L_.queue.filter(q => !L_.game || q.game === L_.game).forEach(q => {   // свои неотправленные метки — поверх
+      L_.rows.set(q.id, { id: q.id, game_id: q.game, kind: q.kind, data: q.data, gone: q.gone, author: store.live.who(), updated_at: new Date().toISOString(), pending: true, qid: q.qid });
+    });
+  }
+  addEventListener('online', () => { if (S.live) { lvPoll(); lvSchedule(); } });
+
   /** Поставить / изменить / снять метку: сразу на экране, в базу — как будет связь. */
   function lvPut(kind, id, data, gone = false) {
     const L_ = S.live; if (!L_ || (L_.viewer && kind !== 'guest')) return;   // гость по ссылке может только отмечать себя
@@ -3815,7 +3852,7 @@
     const v = S.live.viewer, box = document.createElement('div'); box.id = 'liveUi'; box.className = 'lvui';
     box.innerHTML = `<div class="lvui__top"><span class="lvui__st" id="lvSt"></span><div class="lvui__ttl"><b>${v ? 'Лайф-карта' : 'Лайф-карта'}</b><span id="lvGame"></span></div><button type="button" class="lvui__fq" id="lvFreq" ${v ? 'disabled' : ''}></button>
         ${v ? '' : '<button type="button" class="lvui__ib" id="lvMapLock" title="Закрепить карту">✋</button>'}<button type="button" class="lvui__ib" id="lvClean" title="Спрятать всё — только карта">👁</button><button type="button" class="lvui__ib" id="lvOri" title="Закрепить поворот экрана">↻</button><button type="button" class="lvui__ib" id="lvFs" title="Полный экран">⛶</button>
-        <button type="button" class="lvui__x" id="lvExit" title="${v ? 'Перейти на сайт' : 'Выйти из лайф-карты'}">${v ? 'На сайт' : '✕'}</button></div>
+        <button type="button" class="lvui__x" id="lvExit" title="${APP ? 'На главный экран приложения' : v ? 'Перейти на сайт' : 'Выйти из лайф-карты'}">${v && !APP ? 'На сайт' : '✕'}</button></div>
       <div class="lvui__err" id="lvErr" hidden></div>
       ${v ? '' : `<div class="lvui__hint" id="lvHint">2× нажатие — я тут · удержать — метки · ✎ — путь</div>
       <div class="lvui__bot">
@@ -3920,7 +3957,7 @@
     st.className = 'lvui__st ' + (L_.online == null ? 'wait' : ok ? (q ? 'q' : 'ok') : 'off');
     st.title = L_.online == null ? 'Подключение…' : ok ? (q ? `Отправляю: ${q}` : 'На связи') : 'Нет связи' + (q ? ` — в очереди ${q}` : '');
     st.textContent = L_.online == null ? '…' : ok ? (q ? '↑' + q : '') : (q ? '✕ ' + q : '✕');
-    const er = $('#lvErr'); if (er) { er.hidden = !L_.err && ok !== false; er.textContent = L_.err || (L_.online === false ? 'Нет связи — метки отправятся, когда появится сеть' : ''); if (!L_.err && L_.online !== false) er.hidden = true; }
+    const er = $('#lvErr'); if (er) { er.hidden = !L_.err && ok !== false; const last = L_.lastOk || L_.cacheAt, ago = last ? lvAgo(Date.now() - last) : ''; er.textContent = L_.err || (L_.online === false ? `Нет связи${ago ? ' · метки других — ' + (ago === 'сейчас' ? 'только что' : ago + ' назад') : ''}. Свои отправятся, когда появится сеть` : ''); if (!L_.err && L_.online !== false) er.hidden = true; }
   }
   function lvMoreMenu() {
     const L_ = S.live, g = liveGame(); if (!g) return;
@@ -3940,7 +3977,7 @@
         if (a === 'share') { $('#dlg').close(); lvShareForm(); }
         if (a === 'log') { $('#dlg').close(); lvJournal(); }
         if (a === 'name') { const n = prompt('Позывной на карте', lvName()); if (n && n.trim()) { ls.set('pm-live-name', n.trim().slice(0, 24)); const me = LVrow().get('me:' + lvMeKey()); if (me && !me.gone) lvPut('me', me.id, Object.assign({}, me.data, { name: n.trim().slice(0, 24) })); $('#dlg').close(); } }
-        if (a === 'game') { $('#dlg').close(); exitLive(true); openLiveStart(); }
+        if (a === 'game') { $('#dlg').close(); if (APP) { exitLive(); return; } exitLive(true); openLiveStart(); }
         if (a === 'apply') { if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Точно? Посетители увидят это как итог игры'; return; } $('#dlg').close(); await lvApply(); }
         if (a === 'clear') { if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Точно убрать все метки? Нажмите ещё раз'; return; }
           try { await store.live.clear(L_.game); LVrow().forEach(r => { if (r.kind !== 'pt') r.gone = true; }); lvRenderMarks(); toast('Метки убраны'); } catch (err) { toast('Нет связи — попробуйте позже', 'err'); } $('#dlg').close(); }
@@ -4034,6 +4071,141 @@
   }
 
   /* ================================================================
+     ПРИЛОЖЕНИЕ «САДОВКА ЛАЙФ»: главный экран, вход, офлайн.
+     Ставится на телефон с экрана «Домой». Подложка полигона и данные игр
+     хранятся в телефоне, поэтому карта и GPS работают без сигнала;
+     метки уходят в базу, как только появится связь.
+     ================================================================ */
+  const TILE_CACHE = 'sadovka-tiles-v1';
+  const AH = { dl: null };   // скачивание карты: { done, total, fail }
+  const appHomeHide = () => { const h = $('#appHome'); if (h) h.hidden = true; };
+  /** Все квадраты подложки полигона (по tiles/index.json). */
+  async function appTileUrls() {
+    const idx = await fetch(C.tilesIndex).then(r => r.json()), out = [];
+    for (const z in idx.levels) { const lv = idx.levels[z]; for (let y = 0; y < lv.rows; y++) for (let x = 0; x < lv.cols; x++) if (lv.mask[y * lv.cols + x] === '1') out.push(new URL(C.tilesUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y), document.baseURI).href); }
+    return out;
+  }
+  /** Сколько квадратов карты уже в телефоне: { have, total }. */
+  async function appTilesState() {
+    if (!window.caches) return null;
+    try { const urls = await appTileUrls(), c = await caches.open(TILE_CACHE), keys = new Set((await c.keys()).map(r => r.url));
+      return { have: urls.filter(u => keys.has(u)).length, total: urls.length, urls }; } catch (e) { return null; }
+  }
+  /** Скачать карту полигона в телефон (≈9 МБ, один раз). Уже скачанное не качается заново. */
+  async function appTilesDownload(quiet) {
+    if (AH.dl || !window.caches) return;
+    const st = await appTilesState(); if (!st) return;
+    const c = await caches.open(TILE_CACHE), keys = new Set((await c.keys()).map(r => r.url)), todo = st.urls.filter(u => !keys.has(u));
+    if (!todo.length) { ls.set('pm-app-tiles', st.total); appHomeSync(); return; }
+    AH.dl = { done: st.total - todo.length, total: st.total, fail: 0 }; appHomeSync();
+    let i = 0;
+    const worker = async () => { while (i < todo.length) { const u = todo[i++];
+      try { const r = await fetch(u, { cache: 'reload' }); if (!r.ok) throw 0; await c.put(u, r); AH.dl.done++; } catch (e) { AH.dl.fail++; }
+      if ((AH.dl.done + AH.dl.fail) % 8 === 0) appHomeSync(); } };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    const ok = !AH.dl.fail; AH.dl = null;
+    if (ok) ls.set('pm-app-tiles', st.total);
+    if (!quiet || !ok) toast(ok ? 'Карта полигона сохранена в телефоне — работает без сети' : 'Карта скачалась не вся — нажмите «Докачать», когда будет сеть', ok ? '' : 'err');
+    appHomeSync();
+  }
+  /** Главный экран: вход / заявка / выбор игры и «Открыть карту», состояние офлайна. */
+  function appHome() {
+    let h = $('#appHome');
+    if (!h) { h = document.createElement('section'); h.id = 'appHome'; h.className = 'ah'; $('.stage').appendChild(h);
+      h.addEventListener('click', appHomeClick); h.addEventListener('change', e => { if (e.target.name === 'ahGame') ls.set('pm-app-game', e.target.value); }); }
+    h.hidden = false;
+    const role = store.role ? store.role() : '', a = (store.account && store.account()) || {}, sb = store.mode === 'supabase';
+    const can = ['player', 'commander', 'admin'].includes(role);
+    const games = D().games.filter(g => !isMedia(g)).slice().sort((x, y) => y.date.localeCompare(x.date));
+    const def = games.find(g => g.id === ls.get('pm-app-game', '')) || liveDefaultGame() || games[0];
+    const team = a.team && teamById(a.team);
+    const name = role === 'admin' ? lvName() : (a.callsign || a.login || '');
+    let main;
+    if (!sb) main = `<div class="ah__card"><p class="hint">Приложению нужна база Supabase — в js/config.js не указан её адрес.</p></div>`;
+    else if (!role) main = `<div class="ah__card ah__card--in"><h2>Вход</h2><p>Карта игры в реальном времени: где свои, куда идём, приказы. Войдите своим логином или подайте заявку — роль выдаст админ.</p>
+        <div class="ah__btns"><button type="button" class="btn primary ah__big" data-ah="in">Войти</button><button type="button" class="btn ah__big" data-ah="up">Регистрация</button></div>
+        <button type="button" class="ah__link" data-ah="tk">У меня есть ссылка на просмотр</button></div>`;
+    else if (!can) main = `<div class="ah__card"><div class="ah__me">${appMe(a, role, team)}</div>
+        <p class="hint">${role === 'pending' ? 'Заявка отправлена. Когда админ выдаст роль, здесь появится карта.' : 'Доступ отключён админом.'}</p>
+        <div class="ah__btns">${role === 'pending' ? '<button type="button" class="btn primary" data-ah="check">↻ Проверить</button>' : ''}<button type="button" class="btn danger" data-ah="out">Выйти</button></div></div>`;
+    else main = `<div class="ah__card"><div class="ah__me">${appMe(a, role, team, name)}<button type="button" class="ah__acc" data-ah="acc" title="Аккаунт">⚙</button></div>
+        ${!games.length ? '<p class="hint">Пока нет ни одной игры с картой.</p>'
+          : role === 'player' ? `<div class="ah__game"><small>Игра</small><b>${esc(fmtDate(def.date))} · ${esc(def.title)}</b></div>`
+          : `<label class="ah__game"><small>Игра</small><select name="ahGame">${games.map(g => { const sc = scById(g.scenarioId); return `<option value="${esc(g.id)}" ${g.id === def.id ? 'selected' : ''}>${esc(fmtDate(g.date))} — ${esc(g.title)}${sc ? ' · ' + esc(sc.title) : ''}</option>`; }).join('')}</select></label>`}
+        ${games.length ? '<button type="button" class="btn primary ah__go" data-ah="go">◉ Открыть карту</button>' : ''}</div>`;
+    h.innerHTML = `<div class="ah__in">
+      <header class="ah__top"><span class="ah__logo"><svg viewBox="0 0 32 32"><path d="M16 2l12 5v8c0 8-5.5 13-12 15C9.5 28 4 23 4 15V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 17l6-6 6 6M10 22l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>
+        <div><b>${esc((D().site && D().site.title) || C.siteTitle)}</b><small>Лайф-карта</small></div></header>
+      ${main}
+      <div class="ah__state" id="ahState"></div>
+      <footer class="ah__foot"><a href="${esc(new URL('./', document.baseURI).href)}" target="_blank" rel="noopener">Сайт полигона ↗</a>${appInstallHint()}</footer></div>`;
+    appHomeSync();
+  }
+  const appMe = (a, role, team, name) => `<div class="acc-av">${esc((name || a.callsign || a.login || '?').slice(0, 1).toUpperCase())}</div><div><b>${esc(name || a.callsign || a.login || store.who())}</b><small>${team ? esc(team.name) + ' · ' : ''}${esc(ROLE_RU[role] || role)}</small></div>`;
+  const appStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+  function appInstallHint() {
+    if (appStandalone()) return '';
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    return `<span class="ah__inst">${AH.prompt ? '<button type="button" class="btn primary" data-ah="install">📲 Установить на телефон</button>'
+      : ios ? 'Установить: «Поделиться» → «На экран „Домой“»' : 'Установить: меню браузера ⋮ → «Добавить на главный экран»'}</span>`;
+  }
+  /** Нижний блок главного экрана: сеть, карта в телефоне, свежесть данных. */
+  async function appHomeSync() {
+    const box = $('#ahState'); if (!box) return;
+    const net = navigator.onLine, at = store.cachedAt ? store.cachedAt() : '';
+    let map_ = '';
+    if (!window.caches || !('serviceWorker' in navigator)) map_ = '<span class="ah__s warn">Этот браузер не умеет хранить карту без сети</span>';
+    else if (AH.dl) map_ = `<span class="ah__s">Скачиваю карту полигона… ${Math.round(AH.dl.done / AH.dl.total * 100)}%</span><i class="ah__bar"><i style="width:${AH.dl.done / AH.dl.total * 100}%"></i></i>`;
+    else { const st = await appTilesState(); if (!$('#ahState')) return;
+      map_ = !st ? '' : st.have >= st.total ? '<span class="ah__s ok">✓ Карта полигона в телефоне — работает без сети</span>'
+        : `<span class="ah__s warn">Карта для работы без сети: ${st.have ? Math.round(st.have / st.total * 100) + '%' : 'не скачана'}</span><button type="button" class="btn" data-ah="dl" ${net ? '' : 'disabled'}>${st.have ? 'Докачать' : 'Скачать'} (≈9 МБ)</button>`; }
+    let q = 0; try { q = (JSON.parse(ls.get('pm-live-q', '[]')) || []).length; } catch (x) {}
+    box.innerHTML = `<span class="ah__s ${net ? 'ok' : 'warn'}">${net ? '● Сеть есть' : '○ Нет сети'}${at ? ` · игры и точки из памяти телефона (${esc(new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))})` : ''}</span>
+      ${q ? `<span class="ah__s warn">Ждут отправки: ${q} ${plural(q, 'метка', 'метки', 'меток')}</span>` : ''}${map_}`;
+  }
+  async function appHomeClick(e) {
+    const b = e.target.closest('[data-ah]'); if (!b) return; const k = b.dataset.ah;
+    if (k === 'in') openLoginSb('in');
+    if (k === 'up') openLoginSb('up');
+    if (k === 'tk') { const v = prompt('Вставьте ссылку на просмотр'); const m = v && v.match(/[?&]live=([\w-]{8,80})/); if (m) enterLive({ token: m[1] }); else if (v) toast('Это не ссылка на лайф-карту', 'err'); }
+    if (k === 'check') { try { await store.refreshProfile(); } catch (x) {} appHome(); toast(store.role() === 'pending' ? 'Пока на рассмотрении' : 'Роль: ' + ROLE_RU[store.role()]); }
+    if (k === 'out') { await store.signOut(); await reload(); toast('Вы вышли'); }
+    if (k === 'acc') openAccount();
+    if (k === 'dl') appTilesDownload();
+    if (k === 'install' && AH.prompt) { AH.prompt.prompt(); try { await AH.prompt.userChoice; } catch (x) {} AH.prompt = null; appHome(); }
+    if (k === 'go') {
+      const role = store.role(), sel = $('#appHome [name="ahGame"]'), g = sel ? sel.value : (liveDefaultGame() || {}).id;
+      if (!g) return;
+      if (role === 'admin' && !ls.get('pm-live-name', '')) { const n = prompt('Ваш позывной на карте', lvName()); if (!n || !n.trim()) return; ls.set('pm-live-name', n.trim().slice(0, 24)); }
+      enterLive({ game: g });
+    }
+  }
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); AH.prompt = e; if (APP && !S.live) appHome(); });
+  ['online', 'offline'].forEach(t => addEventListener(t, () => {
+    if (!APP) return;
+    if (t === 'online') appFresh();
+    if (!S.live) { appHomeSync(); if (t === 'online' && !AH.dl && ls.get('pm-app-tiles', 0) === 0) appTilesDownload(true); }
+  }));
+  /** Данные игр были из памяти телефона, а связь появилась — тихо подтянуть свежие. */
+  let appFreshBusy = false;
+  async function appFresh() {
+    if (!APP || appFreshBusy || !(store.cachedAt && store.cachedAt())) return;
+    appFreshBusy = true;
+    try { await store.load(); if (store.cachedAt()) return;
+      if (S.live) { renderMap(); lvUiSync(); } else { buildGrid(); refresh(); appHome(); } }
+    catch (e) {} finally { appFreshBusy = false; }
+  }
+  /** Запуск приложения: ссылка-просмотр → сразу карта; был на карте, когда закрыл → туда же; иначе главный экран. */
+  function appBoot() {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('app/sw.js', document.baseURI).href, { scope: new URL('app/', document.baseURI).href }).catch(e => console.warn('Офлайн-режим не включился', e));
+    if (lvFromUrl()) return;
+    const role = store.role ? store.role() : '', last = ls.get('pm-app-last', '');
+    if (['player', 'commander', 'admin'].includes(role) && last && D().games.some(g => g.id === last && !isMedia(g))) enterLive({ game: role === 'player' ? (liveDefaultGame() || {}).id || last : last });
+    else appHome();
+    if (navigator.onLine) setTimeout(() => appTilesDownload(true), 1500);   // карта качается сама, один раз
+  }
+
+  /* ================================================================
      ЗАПУСК
      ================================================================ */
   async function reload() {
@@ -4041,9 +4213,12 @@
     if (S.scId && !scById(S.scId)) S.scId = '';
     if (!curGame()) S.gameId = (defaultGame(S.scId) || {}).id || null;
     buildGrid(); refresh();
+    if (APP && !S.live) appHome();
   }
 
   try {
+    const oldLive = !APP && new URLSearchParams(location.search).get('live');   // старые ссылки на просмотр — в приложение
+    if (oldLive) { location.replace(appUrl() + '?live=' + encodeURIComponent(oldLive)); return; }
     $('#siteTitle').textContent = C.siteTitle;   // до загрузки данных; потом renderBrand() возьмёт название из админки
     document.title = C.siteTitle;
     setNight(S.night);
@@ -4065,12 +4240,13 @@
     if (hpnt && curGame()?.points.some(p => p.id === hpnt)) { S.pointId = hpnt; refresh(); }
     if (hpl && places().some(p => p.id === hpl)) { S.placeId = hpl; refresh(); }
     if (hp.get('t') === 'tour' && S.scId) { S.tab = 'tour'; if (hp.get('tr')) S.tourId = hp.get('tr'); refresh(); }
-    if (lvFromUrl()) { /* зритель по ссылке — сразу на лайф-карту */ }
+    if (APP) appBoot();
+    else if (lvFromUrl()) { /* зритель по ссылке — сразу на лайф-карту */ }
     else if (wantsAdmin() && !store.canWrite()) openLogin();
     else if (store.mode === 'supabase' && store.canWrite() && store.isEmpty()) await afterSbLogin();
     else if (store.mode === 'supabase' && store.canWrite()) setTimeout(peopleNotice, 2500);
     // другой админ мог сохранить свою версию, пока вкладка была в фоне — подтягиваем
-    if (store.mode === 'supabase') addEventListener('focus', async () => {
+    if (store.mode === 'supabase' && !APP) addEventListener('focus', async () => {
       if (!store.canWrite() || $('#dlg').open || S.mode || S.live) return;
       try { const r = await store.remoteVersion(); if (r && r.version > store.meta().version) { await reload(); toast(`Данные обновил ${r.updated_by || 'другой админ'} — показана свежая версия`); } } catch (e) {}
     });

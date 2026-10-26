@@ -1518,3 +1518,52 @@ dialog, #dlgForm, .dlg__body, .lvui__sheet, .lvl__b { overflow-x: hidden; }
   .dlg__foot .sp { display: none; }
   .dlg__foot .btn.ghost, .dlg__foot .btn.primary { flex: 1 1 0; }
 }
+
+/* ================= ПРИЛОЖЕНИЕ «САДОВКА ЛАЙФ» (app/index.html) ================= */
+/* В приложении от сайта остаётся только карта: шапка, сцена, сценарии, подвал спрятаны. */
+body.app-mode { overflow: hidden; }
+body.app-mode > :not(#app):not(dialog):not(.lightbox):not(script) { display: none !important; }
+body.app-mode #app { position: fixed; inset: 0; z-index: 5000; height: 100dvh; grid-template-columns: 1fr; grid-template-rows: 1fr; grid-template-areas: "stage"; border: 0; }
+body.app-mode #app .panel, body.app-mode #app .bottombar, body.app-mode #app .adminbar, body.app-mode #app .filters, body.app-mode #app .phase,
+body.app-mode #app .playbar, body.app-mode #app .tov, body.app-mode #app .draftbar, body.app-mode #app .mediaview, body.app-mode #app .pickhint { display: none !important; }
+body.app-mode .toast { z-index: 1700; }
+/* главный экран */
+.ah { position: absolute; inset: 0; z-index: 1600; overflow-y: auto; background: radial-gradient(120% 80% at 50% 0%, #1b2516 0%, var(--bg) 60%); display: flex; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.ah__in { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 14px; margin: auto 0; }
+.ah__top { display: flex; align-items: center; gap: 12px; }
+.ah__logo { width: 46px; height: 46px; color: var(--olive); flex: none; }
+.ah__logo svg { width: 100%; height: 100%; }
+.ah__top b { display: block; font: 600 20px/1.15 var(--head); letter-spacing: .04em; text-transform: uppercase; }
+.ah__top small { color: #9be37a; font: 500 12px var(--head); letter-spacing: .14em; text-transform: uppercase; }
+.ah__card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.ah__card h2 { margin: 0; font: 600 18px var(--head); letter-spacing: .05em; text-transform: uppercase; }
+.ah__card p { margin: 0; color: var(--muted); }
+.ah__me { display: flex; align-items: center; gap: 12px; }
+.ah__me > div:nth-child(2) { flex: 1; min-width: 0; }
+.ah__me b { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah__me small { color: var(--muted); }
+.ah__acc { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--panel-2); font-size: 19px; flex: none; }
+.ah__game { display: flex; flex-direction: column; gap: 4px; }
+.ah__game small { color: var(--muted); font: 500 11px var(--head); letter-spacing: .12em; text-transform: uppercase; }
+.ah__game select { width: 100%; min-height: 46px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); }
+.ah__go, .ah__big { min-height: 56px; font: 600 17px var(--head) !important; letter-spacing: .08em; text-transform: uppercase; }
+.ah__go { background: #1d3a12 !important; border-color: #6fd14a !important; color: #c4f5ab !important; }
+.ah__btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.ah__btns > * { flex: 1 1 140px; }
+.ah__link { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 0; align-self: flex-start; font-size: 13px; }
+.ah__state { display: flex; flex-direction: column; gap: 8px; font-size: 13px; padding: 0 2px; }
+.ah__state .btn { align-self: flex-start; }
+.ah__s { color: var(--muted); }
+.ah__s.ok { color: #9be37a; }
+.ah__s.warn { color: var(--amber); }
+.ah__bar { display: block; height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; }
+.ah__bar > i { display: block; height: 100%; background: var(--olive); transition: width .3s; }
+.ah__foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); padding: 0 2px; }
+.ah__foot a { color: var(--muted); }
+.ah__inst { flex: 1 1 100%; }
+@media (orientation: landscape) and (max-height: 520px) { .ah__inst { flex: 0 1 auto; text-align: right; } }
+@media (orientation: landscape) and (max-height: 520px) {
+  .ah__in { max-width: 760px; display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+  .ah__top, .ah__foot { grid-column: 1 / -1; }
+}

@@ -309,9 +309,17 @@
        в настройках Supabase выключено «Confirm email»). Админы по-прежнему могут входить своей почтой. */
     const LOGIN_DOMAIN = 'sadovka.player';
     const toEmail = l => { l = String(l || '').trim(); return l.includes('@') ? l : l.toLowerCase() + '@' + LOGIN_DOMAIN; };
+    /* Без сети: кто я (админ, роль, позывной) берём из прошлого удачного входа на этом телефоне,
+       иначе приложение в поле «разлогинит» человека только потому, что нет сигнала. */
+    const ACC = 'polygon-sb-acc';
+    const offline = e => !(e && e.status);   // нет ответа от сервера (а не ошибка «нельзя»)
+    const accCache = () => { try { const c = JSON.parse(ls.get(ACC) || 'null'); return c && session && c.email === session.email ? c : null; } catch (e) { return null; } };
+    const accSave = () => { if (session) ls.set(ACC, JSON.stringify({ email: session.email, admin, profile })); };
     async function loadProfile() {
-      try { profile = await rpc('my_profile'); } catch (e) { profile = null; }   // accounts.sql ещё не выполнен — только админы
+      try { profile = await rpc('my_profile'); }
+      catch (e) { const c = offline(e) && accCache(); profile = c ? c.profile : null; }   // accounts.sql ещё не выполнен — только админы
       if (admin) profile = Object.assign({}, profile || {}, { role: 'admin' });
+      accSave();
       return profile;
     }
     try { session = JSON.parse(ls.get(SES) || 'null'); } catch (e) { session = null; }
@@ -326,7 +334,10 @@
       if (!session) return KEY;
       if (Date.now() > session.expires_at - 60000) {
         try { await auth('token?grant_type=refresh_token', { refresh_token: session.refresh_token }); }
-        catch (e) { keep(null); admin = false; return KEY; }
+        catch (e) {
+          if (offline(e)) return session.access_token;   // нет сети — вход не сбрасываем, обновим, когда появится связь
+          keep(null); admin = false; return KEY;
+        }
       }
       return session.access_token;
     }
@@ -336,7 +347,18 @@
       return r.status === 204 ? null : r.json();
     }
     const rpc = (fn, body) => rest('rpc/' + fn, { method: 'POST', body: JSON.stringify(body || {}) });
-    async function checkAdmin() { try { admin = !!(await rpc('is_site_admin')); } catch (e) { admin = false; } return admin; }
+    async function checkAdmin() { try { admin = !!(await rpc('is_site_admin')); } catch (e) { const c = offline(e) && accCache(); admin = !!(c && c.admin); } return admin; }
+    /* Последние данные сайта лежат в памяти телефона: без сети карта и игры открываются из неё. */
+    const DOC_CACHE = 'sadovka-data', DOC_KEY = 'doc.json';
+    async function docSave(row) {
+      try { if (!window.caches) return;
+        const body = JSON.stringify({ data: row.data, version: row.version, updated_at: row.updated_at, updated_by: row.updated_by, saved: new Date().toISOString() });   // сразу, пока в данные не добавили телефоны
+        await (await caches.open(DOC_CACHE)).put(DOC_KEY, new Response(body, { headers: { 'Content-Type': 'application/json' } })); } catch (e) {}
+    }
+    async function docRead() {
+      try { if (!window.caches) return null; const r = await (await caches.open(DOC_CACHE)).match(DOC_KEY); return r ? r.json() : null; } catch (e) { return null; }
+    }
+    let savedAt = '';   // когда данные пришли из базы ('' — свежие, иначе из памяти телефона)
     /** Телефоны игроков уходят в закрытую строку, посетителям не отдаются. */
     function split(d) {
       const pub = structuredClone(d), phones = {}, notes = {};
@@ -358,14 +380,20 @@
       isEmpty: () => empty,
       /** Есть ли в базе версия новее загруженной (другой админ что-то сохранил). */
       async remoteVersion() { const r = await rest('site_doc?id=eq.public&select=version,updated_at,updated_by'); return r[0] || null; },
+      /** '' — данные свежие из базы; иначе дата, когда их последний раз скачали на этот телефон. */
+      cachedAt: () => savedAt,
       async load() {
-        let row = null;
-        try { row = (await rest('site_doc?id=eq.public&select=data,version,updated_at,updated_by'))[0] || null; }
-        catch (e) { console.warn('База недоступна, показываю data/games.json', e); }
+        let row = null; savedAt = '';
+        try { row = (await rest('site_doc?id=eq.public&select=data,version,updated_at,updated_by'))[0] || null; if (row && row.version) docSave(row); }
+        catch (e) {
+          const c = await docRead();
+          if (c && c.data) { row = c; savedAt = c.saved || ''; console.warn('Нет связи с базой — данные из памяти телефона', savedAt); }
+          else console.warn('База недоступна, показываю data/games.json', e);
+        }
         empty = !row || !row.version;
         version = row ? row.version : 0; meta = { at: row ? row.updated_at : '', by: row ? row.updated_by : '' };
         let data = empty ? await fallbackJson() : row.data;
-        if (admin && !empty) {
+        if (admin && !empty && !savedAt) {
           try {
             const pr = (await rest('site_doc?id=eq.private&select=data'))[0];
             const phones = (pr && pr.data && pr.data.phones) || {};
@@ -409,7 +437,7 @@
       },
       async signOut() {
         if (session) { try { await fetch(`${URL_}/auth/v1/logout`, { method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + session.access_token } }); } catch (e) {} }
-        keep(null); admin = false; profile = null;
+        keep(null); admin = false; profile = null; ls.del(ACC);
       },
       async changePassword(password) {
         const r = await fetch(`${URL_}/auth/v1/user`, { method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
