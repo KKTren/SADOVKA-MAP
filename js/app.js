@@ -550,10 +550,11 @@
     labelsLayer.clearLayers();
     const admin = store.canWrite(), zk = Math.pow(2, map.getZoom() - map.getMinZoom());
     D().labels.forEach(l => {
-      const k = l.scale ? zk : 1;
+      // В лайф-карте подписи «растут с картой» только до ×4: на сильном приближении буквы на весь экран перекрывают метки
+      const k = l.scale ? (S.live ? Math.min(zk, 4) : zk) : 1, fade = l.scale && S.live && zk > 4 ? .5 : 1;
       const m = L.marker(toLL(l.x, l.y), {
         pane: admin && !S.live ? 'markerPane' : 'mapLabels', draggable: admin && !S.mode && !S.live, keyboard: false, interactive: admin && !S.live, zIndexOffset: -500,
-        icon: L.divIcon({ className: 'map-lbl', html: `<div style="color:${esc(paintColor(l.color))};opacity:${l.opacity};font-size:${Math.round(l.size * k)}px">${esc(l.text)}</div>`, iconSize: [0, 0] })
+        icon: L.divIcon({ className: 'map-lbl', html: `<div style="color:${esc(paintColor(l.color))};opacity:${+(l.opacity * fade).toFixed(2)};font-size:${Math.round(l.size * k)}px">${esc(l.text)}</div>`, iconSize: [0, 0] })
       });
       if (admin) {
         m.on('click', () => { if (!S.mode) openLabelForm(l); });
@@ -584,7 +585,7 @@
       m.on('dragend', async () => { const { x, y } = fromLL(m.getLatLng()); const q = places().find(z => z.id === p.id); Object.assign(q, { x, y }); await commit('Объект перемещён'); });
       m.addTo(placesLayer); markerById.set('place:' + p.id, m);
     });
-    if (S.live) { $('#phase').hidden = true; const lg = liveGame(); if (lg) renderLivePoints(lg); lvRenderMarks(); return; }
+    if (S.live) { $('#phase').hidden = true; const lg = liveGame(); if (lg) renderLivePoints(lg); lvRenderMarks(true); return; }
     const g = curGame();
     $('#phase').hidden = !g || !g.points.length || isMedia(g);
     syncPhaseButtons();
@@ -3232,8 +3233,22 @@
   function lvSheetClose() {
     if (!lvSh) return; const s_ = lvSh; lvSh = null;
     s_.el.remove(); if (s_.pin) s_.pin.remove(); if (s_.onClose) s_.onClose();
-    app.classList.remove('lv-sheet');
+    app.classList.remove('lv-sheet', 'lv-kb');
   }
+  /** Поле ввода в шторке: пока открыта клавиатура, шторка стоит вверху экрана и не выше видимой части. */
+  (() => {
+    const vv = window.visualViewport, root = document.documentElement, kbSet = () => { if (vv) root.style.setProperty('--vvh', Math.round(vv.height) + 'px'); };
+    const typing = t => t && t.matches && t.matches('input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), textarea');
+    const isIn = t => typing(t) && t.closest('.lvui__sheet'), inDlg = t => typing(t) && t.closest('dialog');
+    document.addEventListener('focusin', e => {
+      const sh = isIn(e.target), dl = inDlg(e.target); if (!sh && !dl) return;
+      kbSet(); if (sh) app.classList.add('lv-kb'); if (dl) root.classList.add('kb-open');
+      setTimeout(() => { kbSet(); e.target.scrollIntoView({ block: 'nearest' }); }, 350);
+    });
+    document.addEventListener('focusout', e => { if (isIn(e.target) || inDlg(e.target)) setTimeout(() => {
+      const a = document.activeElement; if (!isIn(a)) app.classList.remove('lv-kb'); if (!inDlg(a)) root.classList.remove('kb-open'); }, 120); });
+    if (vv) vv.addEventListener('resize', kbSet);
+  })();
   /** html — содержимое; at — {x, y} куда поставить булавку; onClick(e, api) — нажатия внутри. */
   function lvSheet(html, at, onClick, onClose) {
     lvSheetClose(); map.closePopup();
@@ -3286,8 +3301,18 @@
     const P = lvPref(); if (P.show[lvCat(r)] === false) return false;
     return !P.hidden.includes(r.id);
   }
-  function lvRenderMarks() {
+  /** Отпечаток всего, от чего зависит картинка меток: если он не изменился — ничего не перерисовываем (слабым телефонам легче). */
+  function lvMarksKey() {
+    // «сколько минут назад» обновляем раз в 30 секунд разом для всех, а не по каждой метке отдельно
+    const L_ = S.live, parts = [map.getZoom(), ROT, JSON.stringify(lvPref()), L_.heading == null ? 0 : 1, L_.viewer ? 1 : 0, lvDevice(), Math.floor(Date.now() / 30e3)];
+    LVrow().forEach(r => parts.push(r.id + '|' + r.updated_at + '|' + (r.gone ? 1 : 0) + '|' + (r.pending ? 1 : 0)));
+    return parts.join('~');
+  }
+  function lvRenderMarks(force) {
     if (!S.live || !liveLayer) return;
+    const key = lvMarksKey();
+    if (force !== true && key === S.live.marksKey) { lvListRender(); lvFreqSync(); return; }
+    S.live.marksKey = key;
     liveLayer.clearLayers();
     const capped = lvCapped(), teams = lvGameTeams();
     const rows = [...LVrow().values()].filter(r => lvVisible(r, capped)), meKey = 'me:' + lvMeKey(), can = !S.live.viewer;
@@ -3305,8 +3330,8 @@
         if (d.pts && d.pts.length > 1) lvRoute(d.pts, '#79b8ff', '9 7');
         else if (me && !me.gone) {
           const a = [me.data.x * W, me.data.y * H], b = [d.x * W, d.y * H], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), len = 16 * Math.pow(2, Z - map.getZoom());
-          L.polyline([pxLL(a), pxLL([b[0] - len * .7 * Math.cos(ang), b[1] - len * .7 * Math.sin(ang)])], { pane: 'live', color: '#79b8ff', weight: 3, dashArray: '8 7', opacity: .95, interactive: false }).addTo(liveLayer);
-          L.polygon([pxLL(b), pxLL([b[0] - len * Math.cos(ang - .45), b[1] - len * Math.sin(ang - .45)]), pxLL([b[0] - len * Math.cos(ang + .45), b[1] - len * Math.sin(ang + .45)])], { pane: 'live', color: '#79b8ff', weight: 1, fillOpacity: .95, interactive: false }).addTo(liveLayer);
+          L.polyline([pxLL(a), pxLL([b[0] - len * .7 * Math.cos(ang), b[1] - len * .7 * Math.sin(ang)])], { pane: 'live', renderer: lvRen(), color: '#79b8ff', weight: 3, dashArray: '8 7', opacity: .95, interactive: false }).addTo(liveLayer);
+          L.polygon([pxLL(b), pxLL([b[0] - len * Math.cos(ang - .45), b[1] - len * Math.sin(ang - .45)]), pxLL([b[0] - len * Math.cos(ang + .45), b[1] - len * Math.sin(ang + .45)])], { pane: 'live', renderer: lvRen(), color: '#79b8ff', weight: 1, fillOpacity: .95, interactive: false }).addTo(liveLayer);
         }
         m = ico(r, 'lv--go', `<i class="lv__ring"></i><span class="lv__lbl">${esc(d.name || '')} → сюда</span>`, 22);
       } else if (r.kind === 'order') {
@@ -3648,8 +3673,18 @@
   function lvHide(id) { const P = lvPref(), h = P.hidden.includes(id) ? P.hidden.filter(x => x !== id) : P.hidden.concat(id); lvPrefSet({ hidden: h.slice(-300) }); lvRenderMarks(); }
 
   /* ---------- «Мои приказы»: маленький список, разворачивается по нажатию ---------- */
+  /** Перерисовка списка без прыжка наверх: запоминаем прокрутку и не трогаем DOM, если ничего не изменилось. */
   function lvListRender() {
     const box = $('#lvList'); if (!box || !S.live) return;
+    const sc = box.querySelector('.lvl__b'), top = sc ? sc.scrollTop : 0, armed = [...box.querySelectorAll('[data-del].armed')].map(x => (x.closest('[data-id]') || {}).dataset?.id);
+    const fake = { innerHTML: '', classList: box.classList };
+    lvListBuild(fake);
+    if (fake.innerHTML === box.dataset.html) return;
+    box.innerHTML = fake.innerHTML; box.dataset.html = fake.innerHTML;
+    armed.forEach(id => { const d = id && box.querySelector(`[data-id="${CSS.escape(id)}"] [data-del]`); if (d) { d.classList.add('armed'); d.textContent = 'точно?'; } });
+    const sc2 = box.querySelector('.lvl__b'); if (sc2 && top) sc2.scrollTop = top;
+  }
+  function lvListBuild(box) {
     const P = lvPref(), all = P.listAll || S.live.viewer, tab = P.list === 'teams' ? 'teams' : P.list ? 'orders' : '';
     const capped = lvCapped();
     const items = [...LVrow().values()].filter(r => lvAlive(r) && !capped.has(r.id) && (r.kind === 'order' || r.kind === 'route' || (r.kind === 'go' && r.data && r.data.pts)) && (all || lvMine(r)))
@@ -3661,13 +3696,12 @@
     if (tab === 'teams') {
       const g = liveGame(), onMap = id => guests.filter(r => r.data.team === id).length;
       const sides = g ? D().sides.filter(sd => g.sides[sd.id] && sideEntries(g.sides[sd.id]).length) : [];
-      box.innerHTML = head + `<div class="lvl__b">${sides.map(sd => { const v = g.sides[sd.id], tot = sideTotal(v);
+      box.innerHTML = head + `<div class="lvl__b">${lvPeopleHtml()}${sides.map(sd => { const v = g.sides[sd.id], tot = sideTotal(v);
           return `<div class="lvl__side" style="--c:${esc(sd.color)}">${esc(sd.name)}${tot ? ` · ${tot} чел.` : ''}</div>` + sideEntries(v).map(e => `<div class="lvl__i" data-team="${esc(e.id)}" data-tn="${esc(e.t.name)}">${teamBadge(e.id, sd.id, 'tb--s')}
             <button type="button" class="lvl__go" data-tgo><b>${esc(e.t.name)}</b><small>${e.players != null ? e.players + ' чел.' : e.t.players.length ? e.t.players.length + ' в составе' : ''}${onMap(e.id) ? ` · <b style="color:#ffb347">${onMap(e.id)} на карте</b>` : ''}${e.t.captain ? ' · кэп ' + esc(e.t.captain) : ''}</small></button>
             ${S.live.viewer ? '' : '<button type="button" class="lvl__x" data-tpath title="Задать маршрут команде">✎</button>'}</div>`).join(''); }).join('')
         || '<p class="lvl__e">В этой игре команды не назначены — «Изменить игру» → стороны и команды.</p>'}
-        ${guests.filter(r => !r.data.team).length ? `<div class="lvl__side" style="--c:#ffb347">Гости без команды · ${guests.filter(r => !r.data.team).length}</div>` + guests.filter(r => !r.data.team).map(r => `<div class="lvl__i" data-id="${esc(r.id)}"><span class="lv-n" style="--c:#ffb347">👤</span>
-            <button type="button" class="lvl__go" data-go><b>${esc(r.data.name || 'Гость')}</b><small>${esc(lvWhere(r.data.x, r.data.y))} · ${lvAgo(lvAge(r))}</small></button></div>`).join('') : ''}</div>`;
+        </div>`;
       return;
     }
     box.innerHTML = head + `<div class="lvl__b">${items.length ? items.map(r => { const d = r.data || {}, T = LV_RT[d.type] || (r.kind === 'order' ? LV_RT.order : LV_RT.go), hid = P.hidden.includes(r.id);
@@ -3677,6 +3711,25 @@
           <button type="button" class="lvl__x" data-hide title="${hid ? 'Показать' : 'Скрыть у меня'}">${hid ? '◌' : '◉'}</button>${S.live.viewer ? '' : '<button type="button" class="lvl__x" data-del title="Удалить у всех">✕</button>'}</div>`; }).join('')
       : '<p class="lvl__e">Пока пусто — приказы и маршруты появятся здесь</p>'}
       ${S.live.viewer ? '' : `<label class="lvl__all"><input type="checkbox" data-all ${P.listAll ? 'checked' : ''}> показывать приказы всех админов</label>`}</div>`;
+  }
+  /** «Кто на карте»: все с метками «я тут» (аккаунты и гости) — расстояние от меня, давность, последняя их метка. */
+  function lvPeopleHtml() {
+    const all = [...LVrow().values()], myKey = 'me:' + lvMeKey(), guKey = 'gu:' + lvDevice();
+    const mine = LVrow().get(myKey) || LVrow().get(guKey), at = mine && !mine.gone && mine.data ? mine.data : null;
+    const ppl = all.filter(r => (r.kind === 'me' || r.kind === 'guest') && lvAlive(r) && r.id !== myKey && r.id !== guKey && r.data);
+    if (!ppl.length) return '';
+    const teams = lvGameTeams();
+    const lastMark = d => all.filter(m => !m.gone && m.data && lvAlive(m) && ['order', 'route', 'enemy', 'medic', 'go'].includes(m.kind) && (d.dev ? m.data.dev === d.dev || (m.kind !== 'go' && m.data.name && m.data.name === d.name) : m.data.name === d.name))
+      .sort((x, y) => y.updated_at.localeCompare(x.updated_at))[0];
+    const row = r => { const d = r.data, age = lvAge(r), tm = lvTeamInfo(d.team, teams), dist = at ? Math.round(lvMeters(at, d)) : null, lm = lastMark(d);
+      const what = lm ? (lm.kind === 'route' ? `маршрут ${esc(lm.data.n || '')} ${esc(lm.data.text || (LV_RT[lm.data.type] || LV_RT.go).n)}` : lm.kind === 'order' ? `приказ «${esc(lm.data.text || '')}»` : esc((LV_WHAT[lm.kind] || 'метка').toLowerCase())) + ' · ' + lvAgo(lvAge(lm)) : '';
+      return { dist, age, html: `<div class="lvl__i lvl__p${age > LV_OLD ? ' old' : ''}" data-id="${esc(r.id)}">${tm ? lvEmblem(tm, 'lv-em--s') : `<span class="lv-n" style="--c:${r.kind === 'guest' ? '#ffb347' : '#79b8ff'}">${r.kind === 'guest' ? '👤' : '★'}</span>`}
+        <button type="button" class="lvl__go" data-go><b>${esc(d.name || (r.kind === 'guest' ? 'Гость' : 'Админ'))}${tm ? ' · ' + esc(tm.t.name) : ''}</b>
+        <small>${dist != null ? `<b class="lvl__d">${dist >= 1000 ? (dist / 1000).toFixed(1).replace('.', ',') + ' км' : dist + ' м'}</b> · ` : ''}${esc(lvWhere(d.x, d.y))} · ${age > LV_OLD ? 'молчит ' : ''}${lvAgo(age)}${what ? '<br>✎ ' + what : ''}</small></button></div>` }; };
+    const list = ppl.map(row).sort((x, y) => (x.age > LV_OLD) - (y.age > LV_OLD) || (x.dist ?? 1e9) - (y.dist ?? 1e9) || x.age - y.age);
+    const on = list.filter(x => x.age <= LV_OLD).length;
+    return `<div class="lvl__side" style="--c:#79b8ff">На карте · ${on} на связи${list.length > on ? `, ${list.length - on} молчат` : ''}</div>`
+      + (at ? '' : '<p class="lvl__e">Отметьте «Я тут» или включите GPS — покажу, сколько до каждого</p>') + list.map(x => x.html).join('');
   }
   function lvListClick(e) {
     e.stopPropagation();
@@ -3807,15 +3860,18 @@
   }
 
   /** Маршрут на карте: обводка, линия и стрелка на конце. */
+  /** Линии лайф-карты рисуем на одном canvas, а не десятками SVG-элементов: слабые телефоны так не подтормаживают. */
+  let lvCanvas = null;
+  const lvRen = () => lvCanvas || (lvCanvas = L.canvas({ pane: 'live', padding: 0.3 }));
   function lvRoute(pts, color, dash) {
     if (!pts || pts.length < 2) return;
     const P = pts.map(([x, y]) => [x * W, y * H]), n = P.length, len = 16 * Math.pow(2, Z - map.getZoom());
     let k = n - 2; while (k > 0 && Math.hypot(P[n - 1][0] - P[k][0], P[n - 1][1] - P[k][1]) < len) k--;
     const [x1, y1] = P[k], [x2, y2] = P[n - 1], ang = Math.atan2(y2 - y1, x2 - x1);
     const body = P.slice(0, -1).concat([[x2 - len * .7 * Math.cos(ang), y2 - len * .7 * Math.sin(ang)]]).map(pxLL);
-    L.polyline(body, { pane: 'live', color: '#000', weight: 6, opacity: .45, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
-    L.polyline(body, { pane: 'live', color, weight: 3.5, opacity: .95, dashArray: dash || null, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
-    L.polygon([[x2, y2], [x2 - len * Math.cos(ang - .45), y2 - len * Math.sin(ang - .45)], [x2 - len * Math.cos(ang + .45), y2 - len * Math.sin(ang + .45)]].map(pxLL), { pane: 'live', color: '#000', weight: 1, fillColor: color, fillOpacity: 1, interactive: false }).addTo(liveLayer);
+    L.polyline(body, { pane: 'live', renderer: lvRen(), color: '#000', weight: 6, opacity: .45, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
+    L.polyline(body, { pane: 'live', renderer: lvRen(), color, weight: 3.5, opacity: .95, dashArray: dash || null, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(liveLayer);
+    L.polygon([[x2, y2], [x2 - len * Math.cos(ang - .45), y2 - len * Math.sin(ang - .45)], [x2 - len * Math.cos(ang + .45), y2 - len * Math.sin(ang + .45)]].map(pxLL), { pane: 'live', renderer: lvRen(), color: '#000', weight: 1, fillColor: color, fillOpacity: 1, interactive: false }).addTo(liveLayer);
   }
 
   /* ---------- GPS ---------- */
